@@ -1,14 +1,14 @@
-package casino
+package weamqp
 
 import (
 	"context"
 	"errors"
+	"log"
 	"net/url"
 	"sync"
 	"time"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -61,7 +61,6 @@ type QueueBindDeclare struct {
 type ClientOptions struct {
 	Url    url.URL
 	Config *Config
-	Log    *logrus.Entry
 }
 
 type subscription struct {
@@ -86,7 +85,6 @@ type Client struct {
 	exchangeDeclares  sync.Map
 	queueDeclares     sync.Map
 	queueBindDeclares sync.Map
-	log               *logrus.Entry
 
 	_conn    *amqp091.Connection
 	_channel *amqp091.Channel
@@ -132,7 +130,7 @@ func (client *Client) connect() (*amqp091.Connection, error) {
 	}
 
 	client.changeConnection(conn)
-	client.log.Println("[AMQP] Connected!")
+	log.Println("[AMQP] Connected!")
 	return conn, nil
 }
 
@@ -169,7 +167,7 @@ func consume(channel *amqp091.Channel, s subscription) error {
 
 // init will initialize channel & declare queue
 func (client *Client) init(conn *amqp091.Connection) error {
-	client.log.Println("[AMQP] init")
+	log.Println("[AMQP] init")
 	ch, err := conn.Channel()
 
 	if err != nil {
@@ -198,7 +196,7 @@ func (client *Client) init(conn *amqp091.Connection) error {
 		return true
 	})
 	client.isReady = true
-	client.log.Println("[AMQP] Setup!")
+	log.Println("[AMQP] Setup!")
 
 	return nil
 }
@@ -212,7 +210,7 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 		err := client.init(conn)
 
 		if err != nil {
-			client.log.Println("[AMQP] Failed to initialize channel. Retrying... err:", err)
+			log.Println("[AMQP] Failed to initialize channel. Retrying... err:", err)
 
 			select {
 			case <-client.done:
@@ -231,10 +229,10 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 		case <-client.done:
 			return true
 		case err := <-client.notifyConnClose:
-			client.log.Println("[AMQP] Connection closed with error: ", err.Error(), ". Reconnecting...")
+			log.Println("[AMQP] Connection closed with error: ", err.Error(), ". Reconnecting...")
 			return false
 		case <-client.notifyChanClose:
-			client.log.Println("[AMQP] Channel closed. Re-running init...")
+			log.Println("[AMQP] Channel closed. Re-running init...")
 		}
 	}
 }
@@ -244,11 +242,11 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 func (client *Client) handleReconnect() {
 	for {
 		client.isReady = false
-		client.log.Println("[AMQP] handleReconnect Attempting to connect")
+		log.Println("[AMQP] handleReconnect Attempting to connect")
 
 		conn, err := client.connect()
 		if err != nil {
-			client.log.Println("[AMQP] Failed to connect. Retrying...")
+			log.Println("[AMQP] Failed to connect. Retrying...")
 			select {
 			case <-client.done:
 				return
@@ -288,13 +286,13 @@ func (client *Client) declareExchange(declare *ExchangeDeclare) error {
 
 func (client *Client) declareQueue(declare *QueueDeclare) error {
 	if client._channel == nil {
-		// client.log.Infof("[AMQP] _channel:[%v]", client._channel)
+		// log.Infof("[AMQP] _channel:[%v]", client._channel)
 		return nil
 	}
 	passive := declare.exist
-	// client.log.Infof("[AMQP] passive:[%v]", passive)
+	// log.Infof("[AMQP] passive:[%v]", passive)
 	if !passive {
-		// client.log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
+		// log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
 		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete, false, false, nil)
 		if err != nil {
 			declare.exist = true
@@ -472,7 +470,7 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 	for {
 		err := client.unsafePush(ctx, exchange, key, msg)
 		if err != nil {
-			client.log.Println("[AMQP] Push failed. Retrying...")
+			log.Println("[AMQP] Push failed. Retrying...")
 			select {
 			case <-client.done:
 				return errShutdown
@@ -483,12 +481,12 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 		select {
 		case confirm := <-client.notifyConfirm:
 			if confirm.Ack {
-				client.log.Println("[AMQP] Push confirmed!")
+				log.Println("[AMQP] Push confirmed!")
 				return nil
 			}
 		case <-time.After(resendDelay):
 		}
-		client.log.Println("[AMQP] Push didn't confirm. Retrying...")
+		log.Println("[AMQP] Push didn't confirm. Retrying...")
 	}
 }
 
@@ -500,7 +498,7 @@ func (client *Client) Publisher(exchange string) *Publisher {
 }
 
 func (client *Client) SubscribeQueue(queue string, autoAct bool, fn func(Delivery)) error {
-	// client.log.Infof("[AMQP] SubscribeQueue")
+	// log.Infof("[AMQP] SubscribeQueue")
 	_subscription := &subscription{
 		queue:    queue,
 		handler:  fn,
@@ -509,26 +507,26 @@ func (client *Client) SubscribeQueue(queue string, autoAct bool, fn func(Deliver
 	}
 	client.mapSubscriptions.Store(queue, _subscription)
 	if client._channel != nil {
-		// client.log.Infof("[AMQP] client channel not nil")
+		// log.Infof("[AMQP] client channel not nil")
 		chDelivery, err := client._channel.Consume(queue, "", autoAct, false, false, false, nil)
 		if err != nil {
-			client.log.WithError(err).Errorf("[AMQP] Consume err")
+			log.Printf("[AMQP] Consume err: %v", err)
 			return err
 		}
-		// client.log.Infof("[AMQP] run go func")
+		// log.Infof("[AMQP] run go func")
 		go func() {
-			// client.log.Infof("[AMQP] loop call fn delivery")
+			// log.Infof("[AMQP] loop call fn delivery")
 			for delivery := range chDelivery {
-				// client.log.Infof("[AMQP] call delivery func")
+				// log.Infof("[AMQP] call delivery func")
 				fn(delivery)
 				err = delivery.Ack(false)
 				if err != nil {
-					client.log.Fatalf("failed ack: %v", err)
+					log.Fatalf("failed ack: %v", err)
 				}
 			}
 		}()
 	} else {
-		client.log.Infof("[AMQP] client channel is nil")
+		log.Println("[AMQP] client channel is nil")
 	}
 
 	return nil
@@ -543,7 +541,7 @@ func (client *Client) Unsubscribe(queue string) {
 
 // New creates a new consumer state instance, and automatically
 // attempts to connect to the server.
-func NewClient(amqpUrl *url.URL, config *Config, log *logrus.Entry) *Client {
+func NewClient(amqpUrl url.URL, config *Config) *Client {
 
 	_config := Config{}
 	if config != nil {
@@ -551,9 +549,8 @@ func NewClient(amqpUrl *url.URL, config *Config, log *logrus.Entry) *Client {
 	}
 
 	client := Client{
-		url:              *amqpUrl,
+		url:              amqpUrl,
 		config:           &_config,
-		log:              log,
 		done:             make(chan bool),
 		shouldRun:        false,
 		isReady:          false,
