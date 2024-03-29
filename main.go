@@ -32,11 +32,9 @@ const PROVIDER_API_URL = "PROVIDER_API_URL"
 const AMQP_CONNECTION_STRING = "AMQP_CONNECTION_STRING"
 const AMQP_EXCHANGE = "AMQP_EXCHANGE"
 
-const OPERATOR = "OPERATOR"
+const SERVICE = "SERVICE"
 
 func readEnv(name string) string {
-	logrus.Infof("readEnv name:[%v]", name)
-	logrus.Infof("readEnv os.Getenv:[%v]", os.Getenv(name))
 	env := strings.TrimSpace(os.Getenv(name))
 	log.Printf("[ENV] load env: %v => [%v]", name, env)
 	return env
@@ -73,7 +71,7 @@ func printJSON(ctx context.Context, object any) {
 	} else if len(data) > 0 {
 		span.SetAttributes(attribute.String("json", string(data)))
 	}
-	span.End()
+	defer span.End()
 }
 
 func printGameProvide(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
@@ -130,7 +128,7 @@ func main() {
 	// provider := pbRecorder.NewProviderServiceClient(conn)
 
 	// self host queue
-	service := readEnvMustNotEmpty(OPERATOR)
+	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
 	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
 	selfHostAmqp := loadAMQPClient(AMQP_CONNECTION_STRING)
