@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/sirupsen/logrus"
 	"github.com/wecasino/wecasino-example-backend-go/weamqp"
 
 	"github.com/google/uuid"
@@ -125,6 +126,7 @@ func (s *WECasinoQueue) genGameHandler(gameCode string) func(amqp091.Delivery) {
 
 		notifyType := pbRecorder.GameNotifyType(pbRecorder.GameNotifyType_value[delivery.Type])
 
+		logrus.Infof("receive game notifyType:[%v]", notifyType)
 		switch notifyType {
 
 		case pbRecorder.GameNotifyType_NOTIFY_GAME_DEALER_LOGIN,
@@ -206,7 +208,7 @@ func (s *WECasinoQueue) genGameHandler(gameCode string) func(amqp091.Delivery) {
 
 func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 	return func(delivery amqp091.Delivery) {
-		log.Printf("receive delivery headers: %v", delivery.Headers)
+		log.Printf("receive StateChange headers: %v", delivery.Headers)
 
 		if delivery.Type != pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String() {
 			return
@@ -222,7 +224,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			log.Print("gameCode empty")
 			return
 		}
-		log.Printf("receive gameProvide.State:[%v]", gameProvide.State)
+		log.Printf("receive StateChange gameProvide.State:[%v]", gameProvide.State)
 
 		queue := fmt.Sprintf("%v:%v:game:%v", s.service, s.platformCode, gameProvide.GameCode)
 

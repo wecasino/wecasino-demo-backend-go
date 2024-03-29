@@ -1,6 +1,6 @@
 module github.com/wecasino/wecasino-example-backend-go
 
-go 1.21.5
+go 1.23
 
 require (
 	github.com/google/uuid v1.6.0
@@ -17,6 +17,8 @@ require (
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
 	golang.org/x/net v0.20.0 // indirect

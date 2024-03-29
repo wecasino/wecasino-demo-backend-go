@@ -17,6 +17,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 	"github.com/wecasino/wecasino-example-backend-go/queue"
 	"github.com/wecasino/wecasino-example-backend-go/weamqp"
 
@@ -30,9 +32,11 @@ const PROVIDER_API_URL = "PROVIDER_API_URL"
 const AMQP_CONNECTION_STRING = "AMQP_CONNECTION_STRING"
 const AMQP_EXCHANGE = "AMQP_EXCHANGE"
 
-const Service = "wecasino-demo"
+const OPERATOR = "OPERATOR"
 
 func readEnv(name string) string {
+	logrus.Infof("readEnv name:[%v]", name)
+	logrus.Infof("readEnv os.Getenv:[%v]", os.Getenv(name))
 	env := strings.TrimSpace(os.Getenv(name))
 	log.Printf("[ENV] load env: %v => [%v]", name, env)
 	return env
@@ -88,12 +92,19 @@ func printRound(ctx context.Context, round *pbRecorder.RoundRecord) {
 	printJSON(ctx, round)
 }
 
+func init() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file error:[%v]", err)
+	}
+}
+
 func main() {
 
 	ctx := context.Background()
 
 	// log
-	exporter, err := stdout.New(stdout.WithPrettyPrint())
+	exporter, err := stdout.New()
 	if err != nil {
 		log.Fatalf("failed to initialize exporter: %v", err)
 	}
@@ -105,11 +116,12 @@ func main() {
 	otel.SetTracerProvider(tp)
 
 	defer func() {
-
+		if err := tp.Shutdown(ctx); err != nil {
+			logrus.Error("Error shutting down tracer provider: %v", err)
+		}
 	}()
 
 	// provider api 服務
-
 	// conn, err := grpc.Dial(readEnvMustNotEmpty(PROVIDER_API_URL))
 	// if err != nil {
 	// 	log.Panic(err)
@@ -118,7 +130,7 @@ func main() {
 	// provider := pbRecorder.NewProviderServiceClient(conn)
 
 	// self host queue
-	service := readEnvMustNotEmpty(Service)
+	service := readEnvMustNotEmpty(OPERATOR)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
 	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
 	selfHostAmqp := loadAMQPClient(AMQP_CONNECTION_STRING)
