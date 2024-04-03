@@ -383,20 +383,6 @@ func (client *Client) RemoveAllQueueDeclare() {
 	}
 }
 
-func (client *Client) RemoveAllQueueBindDeclare(exchange string) {
-	// 使用 Range 方法遍历 sync.Map
-	keys := make([]interface{}, 0)
-	client.queueDeclares.Range(func(key, value interface{}) bool {
-		keys = append(keys, key.(string))
-		return true // 返回 true 继续遍历，返回 false 中止遍历
-	})
-
-	for _, item := range keys {
-		// logrus.Infof("item:[%v]", item)
-		client.RemoveQueueBindDeclare(exchange, item.(string))
-	}
-}
-
 func (client *Client) QueueBindDeclare(declare QueueBindDeclare) error {
 	_declare := declare
 	client.queueBindDeclares.LoadOrStore(_declare.Exchange+_declare.Queue, &_declare)
@@ -413,6 +399,20 @@ func (client *Client) RemoveQueueBindDeclare(exchange, queue string) {
 		if ok {
 			client._channel.QueueUnbind(declare.Queue, declare.RouteKey, declare.Exchange, declare.Headers)
 		}
+	}
+}
+
+func (client *Client) RemoveAllQueueBindDeclare(exchange string) {
+	// 使用 Range 方法遍历 sync.Map
+	keys := make([]interface{}, 0)
+	client.queueDeclares.Range(func(key, value interface{}) bool {
+		keys = append(keys, key.(string))
+		return true // 返回 true 继续遍历，返回 false 中止遍历
+	})
+
+	for _, item := range keys {
+		// logrus.Infof("item:[%v]", item)
+		client.RemoveQueueBindDeclare(exchange, item.(string))
 	}
 }
 
