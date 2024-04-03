@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
+	// "go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
@@ -125,11 +125,11 @@ func (s *WECasinoQueue) genGameHandler(gameCode string) func(amqp091.Delivery) {
 		traceId := getTraceId(delivery.Headers["traceID"])
 		ctx, _ := s.tracer.Start(context.Background(), traceId)
 
-		span := trace.SpanFromContext(ctx)
-		for key, value := range delivery.Headers {
-			span.SetAttributes(attribute.String(key, fmt.Sprintf("%v", value)))
-		}
-		defer span.End()
+		// span := trace.SpanFromContext(ctx)
+		// for key, value := range delivery.Headers {
+		// 	span.SetAttributes(attribute.String(key, fmt.Sprintf("%v", value)))
+		// }
+		// defer span.End()
 
 		notifyType := pbRecorder.GameNotifyType(pbRecorder.GameNotifyType_value[delivery.Type])
 
@@ -255,6 +255,10 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 				},
 			})
 			s.amqp.SubscribeQueue(queue, false, s.genGameHandler(gameCode))
+
+		default:
+			s.amqp.RemoveAllQueueBindDeclare(s.exchange)
+			s.amqp.RemoveAllQueueDeclare()
 		}
 	}
 }
