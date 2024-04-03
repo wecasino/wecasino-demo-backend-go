@@ -9,6 +9,7 @@ import (
 	"time"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -378,7 +379,7 @@ func (client *Client) RemoveAllQueueDeclare() {
 	})
 
 	for _, item := range keys {
-		// logrus.Infof("item:[%v]", item)
+		logrus.Infof("RemoveAllQueueDeclare item:[%v]", item)
 		client.RemoveQueueDeclare(item.(string))
 	}
 }
@@ -411,7 +412,7 @@ func (client *Client) RemoveAllQueueBindDeclare(exchange string) {
 	})
 
 	for _, item := range keys {
-		// logrus.Infof("item:[%v]", item)
+		logrus.Infof("RemoveAllQueueBindDeclare item:[%v]", item)
 		client.RemoveQueueBindDeclare(exchange, item.(string))
 	}
 }

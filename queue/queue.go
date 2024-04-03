@@ -255,10 +255,12 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 				},
 			})
 			s.amqp.SubscribeQueue(queue, false, s.genGameHandler(gameCode))
+		case pbRecorder.GameProvideState_GAME_PROVIDE_AVAILABLE_AFTER_ROUND:
 
 		default:
-			s.amqp.RemoveAllQueueBindDeclare(s.exchange)
-			s.amqp.RemoveAllQueueDeclare()
+			logrus.Infof("enter default state:[%v]", gameProvide.State)
+			s.amqp.RemoveQueueBindDeclare(s.exchange, queue)
+			s.amqp.RemoveQueueDeclare(queue)
 		}
 	}
 }
