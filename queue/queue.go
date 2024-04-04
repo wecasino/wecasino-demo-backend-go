@@ -255,12 +255,12 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 				},
 			})
 			s.amqp.SubscribeQueue(queue, false, s.genGameHandler(gameCode))
-		case pbRecorder.GameProvideState_GAME_PROVIDE_AVAILABLE_AFTER_ROUND:
-
-		default:
-			logrus.Infof("enter default state:[%v]", gameProvide.State)
+		case pbRecorder.GameProvideState_GAME_PROVIDE_CLOSE, pbRecorder.GameProvideState_GAME_PROVIDE_IN_MAINTENANCE:
+			logrus.Infof("remove Queue:[%v]", queue)
 			s.amqp.RemoveQueueBindDeclare(s.exchange, queue)
 			s.amqp.RemoveQueueDeclare(queue)
+		default:
+			logrus.Infof("enter default gameProvide.State:[%v]", gameProvide.State)
 		}
 	}
 }
@@ -299,6 +299,11 @@ func (s *WECasinoQueue) Start() {
 }
 
 func (s *WECasinoQueue) End() {
+	if s.amqp == nil {
+		return
+	}
+	s.amqp.RemoveAllQueueBindDeclare(s.exchange)
+	s.amqp.RemoveAllQueueDeclare()
 	s.amqp.Close()
 }
 
