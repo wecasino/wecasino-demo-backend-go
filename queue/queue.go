@@ -302,6 +302,8 @@ func (s *WECasinoQueue) End() {
 	if s.amqp == nil {
 		return
 	}
+	s.amqp.RemoveAllQueueBindDeclare(s.exchange)
+	s.amqp.RemoveAllQueueDeclare()
 	s.amqp.Close()
 }
 
