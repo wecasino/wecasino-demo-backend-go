@@ -245,9 +245,11 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			if s.amqp == nil {
 				return
 			}
+			var setAutoDelect = weamqp.AtomicBool{}
+			setAutoDelect.Set(false)
 			s.amqp.QueueDeclare(weamqp.QueueDeclare{
 				Name:       queue,
-				AutoDelete: false, // 手動檢查刪除
+				AutoDelete: setAutoDelect, // 手動檢查刪除
 			})
 			s.amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 				Exchange: s.exchange,
@@ -315,14 +317,18 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 	instanceId := uuid.NewString()
 	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
+
+	var setAutoDelect = weamqp.AtomicBool{}
+	setAutoDelect.Set(false)
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
 		Name:       exchange,
 		Kind:       weamqp.ExchangeHeaders,
-		AutoDelete: false,
+		AutoDelete: setAutoDelect,
 	})
+	setAutoDelect.Set(true)
 	amqp.QueueDeclare(weamqp.QueueDeclare{
 		Name:       queue,
-		AutoDelete: true,
+		AutoDelete: setAutoDelect,
 	})
 	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 		Exchange: exchange,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
@@ -38,17 +39,33 @@ type Config = amqp091.Config
 type Delivery = amqp091.Delivery
 type Connection = amqp091.Connection
 
+type AtomicBool struct {
+	flag int32
+}
+
+func (b *AtomicBool) Set(value bool) {
+	if value {
+		atomic.StoreInt32(&b.flag, 1)
+	} else {
+		atomic.StoreInt32(&b.flag, 0)
+	}
+}
+
+func (b *AtomicBool) Get() bool {
+	return atomic.LoadInt32(&b.flag) != 0
+}
+
 type ExchangeDeclare struct {
 	Name       string
 	Kind       ExchangeKind
-	AutoDelete bool
-	exist      bool
+	AutoDelete AtomicBool
+	exist      AtomicBool
 }
 
 type QueueDeclare struct {
 	Name       string
-	AutoDelete bool
-	exist      bool
+	AutoDelete AtomicBool
+	exist      AtomicBool
 }
 
 type QueueBindDeclare struct {
@@ -66,7 +83,7 @@ type ClientOptions struct {
 type subscription struct {
 	queue    string
 	consumer string
-	autoAct  bool
+	autoAct  AtomicBool
 	handler  func(Delivery)
 }
 
@@ -89,22 +106,22 @@ type Client struct {
 	_conn    *amqp091.Connection
 	_channel *amqp091.Channel
 
-	done             chan bool
-	chReady          chan bool
+	doneCh           chan AtomicBool
+	readyCh          chan AtomicBool
 	notifyConnClose  chan *amqp091.Error
 	notifyChanClose  chan *amqp091.Error
 	notifyConfirm    chan amqp091.Confirmation
 	mu               sync.Mutex
-	isReady          bool
-	shouldRun        bool
+	isReady          AtomicBool
+	shouldRun        AtomicBool
 	mapSubscriptions sync.Map
 
-	doRemove bool
+	doRemove AtomicBool
 }
 
 func (client *Client) setReady(ready bool) {
 	client.mu.Lock()
-	client.isReady = ready
+	client.isReady.Set(ready)
 	client.mu.Unlock()
 }
 
@@ -156,7 +173,7 @@ func (client *Client) GetConn() *amqp091.Connection {
 }
 
 func consume(channel *amqp091.Channel, s subscription) error {
-	chDelivery, err := channel.Consume(s.queue, s.consumer, s.autoAct, false, false, false, nil)
+	chDelivery, err := channel.Consume(s.queue, s.consumer, s.autoAct.Get(), false, false, false, nil)
 	if err != nil {
 		return err
 	}
@@ -198,7 +215,7 @@ func (client *Client) init(conn *amqp091.Connection) error {
 		consume(ch, *_subscription)
 		return true
 	})
-	client.isReady = true
+	client.isReady.Set(true)
 	logrus.Infof("[AMQP] Setup!")
 
 	return nil
@@ -208,7 +225,7 @@ func (client *Client) init(conn *amqp091.Connection) error {
 // and then continuously attempt to re-initialize both channels
 func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 	for {
-		client.isReady = false
+		client.isReady.Set(false)
 
 		err := client.init(conn)
 
@@ -216,20 +233,20 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 			logrus.Infof("[AMQP] Failed to initialize channel. Retrying... err:", err)
 
 			select {
-			case <-client.done:
+			case <-client.doneCh:
 				return true
 			case <-time.After(reInitDelay):
 			}
 			continue
 		}
 
-		if client.chReady != nil {
-			close(client.chReady)
-			client.chReady = nil
+		if client.readyCh != nil {
+			close(client.readyCh)
+			client.readyCh = nil
 		}
 
 		select {
-		case <-client.done:
+		case <-client.doneCh:
 			return true
 		case err := <-client.notifyConnClose:
 			logrus.Infof("[AMQP] Connection closed with error: ", err.Error(), ". Reconnecting...")
@@ -244,21 +261,21 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 // notifyConnClose, and then continuously attempt to reconnect.
 func (client *Client) handleReconnect() {
 	for {
-		client.isReady = false
+		client.isReady.Set(false)
 		logrus.Infof("[AMQP] handleReconnect Attempting to connect")
 
 		conn, err := client.connect()
 		if err != nil {
 			logrus.Infof("[AMQP] Failed to connect. Retrying...")
 			select {
-			case <-client.done:
+			case <-client.doneCh:
 				return
 			case <-time.After(reconnectDelay):
 			}
 			continue
 		}
 
-		if done := client.handleReInit(conn); done {
+		if doneCh := client.handleReInit(conn); doneCh {
 			break
 		}
 	}
@@ -270,18 +287,17 @@ func (client *Client) declareExchange(declare *ExchangeDeclare) error {
 	if client._channel == nil {
 		return nil
 	}
-	passive := declare.exist
-	if !passive {
-		err := client._channel.ExchangeDeclare(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
-		if err != nil {
-			declare.exist = true
-			passive = true
-		}
-	}
+	passive := declare.exist.Get()
 	if passive {
-		err := client._channel.ExchangeDeclarePassive(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
+		err := client._channel.ExchangeDeclarePassive(declare.Name, declare.Kind, false, declare.AutoDelete.Get(), false, false, nil)
 		if err != nil {
 			return err
+		}
+	} else {
+		err := client._channel.ExchangeDeclare(declare.Name, declare.Kind, false, declare.AutoDelete.Get(), false, false, nil)
+		if err != nil {
+			declare.exist.Set(true)
+			passive = true
 		}
 	}
 	return nil
@@ -289,22 +305,18 @@ func (client *Client) declareExchange(declare *ExchangeDeclare) error {
 
 func (client *Client) declareQueue(declare *QueueDeclare) error {
 	if client._channel == nil {
-		// log.Infof("[AMQP] _channel:[%v]", client._channel)
 		return nil
 	}
-	passive := declare.exist
-	// log.Infof("[AMQP] passive:[%v]", passive)
-	if !passive {
-		// log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
-		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete, false, false, nil)
-		if err != nil {
-			declare.exist = true
-			passive = true
-		}
-	}
+	passive := declare.exist.Get()
 	if passive {
-		if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil); err != nil {
+		if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete.Get(), false, false, nil); err != nil {
 			return err
+		}
+	} else {
+		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete.Get(), false, false, nil)
+		if err != nil {
+			declare.exist.Set(true)
+			passive = true
 		}
 	}
 	return nil
@@ -371,7 +383,7 @@ func (client *Client) RemoveQueueDeclare(queue string) {
 		client._channel.QueueDelete(queue, false, false, false)
 	}
 	time.Sleep(2 * time.Second)
-	client.doRemove = false
+	client.doRemove.Set(false)
 }
 
 func (client *Client) RemoveAllQueueDeclare() {
@@ -398,7 +410,7 @@ func (client *Client) QueueBindDeclare(declare QueueBindDeclare) error {
 }
 
 func (client *Client) RemoveQueueBindDeclare(exchange, queue string) {
-	client.doRemove = true
+	client.doRemove.Set(true)
 	value, loaded := client.queueBindDeclares.LoadAndDelete(exchange + queue)
 	if loaded && value != nil && client._channel != nil {
 		declare, ok := value.(*QueueBindDeclare)
@@ -425,9 +437,9 @@ func (client *Client) RemoveAllQueueBindDeclare(exchange string) {
 func (client *Client) Connect() {
 	client.mu.Lock()
 	_needStart := false
-	if !client.shouldRun {
-		client.shouldRun = true
-		client.chReady = make(chan bool)
+	if !client.shouldRun.Get() {
+		client.shouldRun.Set(true)
+		client.readyCh = make(chan AtomicBool)
 		_needStart = true
 	}
 	client.mu.Unlock()
@@ -435,8 +447,8 @@ func (client *Client) Connect() {
 	if _needStart {
 		go client.handleReconnect()
 	}
-	if client.chReady != nil {
-		<-client.chReady
+	if client.readyCh != nil {
+		<-client.readyCh
 	}
 }
 
@@ -444,8 +456,8 @@ func (client *Client) Connect() {
 func (client *Client) Close() error {
 	client.mu.Lock()
 	_needClose := false
-	if client.shouldRun {
-		client.shouldRun = false
+	if client.shouldRun.Get() {
+		client.shouldRun.Set(false)
 		_needClose = true
 	}
 	client.mu.Unlock()
@@ -459,7 +471,7 @@ func (client *Client) Close() error {
 		if err != nil {
 			return err
 		}
-		close(client.done)
+		close(client.doneCh)
 
 	}
 
@@ -468,7 +480,7 @@ func (client *Client) Close() error {
 
 func (client *Client) GetReady() bool {
 	client.mu.Lock()
-	isReady := client.isReady
+	isReady := client.isReady.Get()
 	client.mu.Unlock()
 	return isReady
 }
@@ -478,7 +490,7 @@ func (client *Client) GetReady() bool {
 // No guarantees are provided for whether the server will
 // receive the message.
 func (client *Client) unsafePush(ctx context.Context, exchange, key string, msg *Publishing) error {
-	if !client.isReady {
+	if !client.isReady.Get() {
 		return errNotConnected
 	}
 
@@ -498,7 +510,7 @@ func (client *Client) unsafePush(ctx context.Context, exchange, key string, msg 
 func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Publishing) error {
 
 	msg.Timestamp = time.Now()
-	if !client.isReady {
+	if !client.isReady.Get() {
 		return errors.New("[AMQP] failed to push: not connected, client is not ready")
 	}
 	for {
@@ -506,7 +518,7 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 		if err != nil {
 			logrus.Infof("[AMQP] Push failed. Retrying...")
 			select {
-			case <-client.done:
+			case <-client.doneCh:
 				return errShutdown
 			case <-time.After(resendDelay):
 			}
@@ -535,11 +547,13 @@ func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct 
 	// log.Infof("[AMQP] SubscribeQueue")
 
 	client.mu.Lock()
+	var setAutoAct = AtomicBool{flag: 0}
+	setAutoAct.Set(autoAct)
 	subscription := &subscription{
 		queue:    queue,
 		handler:  fn,
 		consumer: queue,
-		autoAct:  autoAct,
+		autoAct:  setAutoAct,
 	}
 	client.mapSubscriptions.Store(queue, subscription)
 	getChannel := client.GetChannel()
@@ -568,7 +582,7 @@ func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct 
 					return //exit loop
 				case delivery, ok := <-chDelivery:
 					if !ok {
-						if client.doRemove == true {
+						if client.doRemove.Get() == true {
 							logrus.Infof("[AMQP] doRemove")
 							return
 						}
@@ -629,9 +643,9 @@ func NewClient(amqpUrl url.URL, config *Config) *Client {
 	client := Client{
 		url:              amqpUrl,
 		config:           &_config,
-		done:             make(chan bool),
-		shouldRun:        false,
-		isReady:          false,
+		doneCh:           make(chan AtomicBool),
+		shouldRun:        AtomicBool{flag: 0},
+		isReady:          AtomicBool{flag: 0},
 		mapSubscriptions: sync.Map{},
 	}
 	return &client
