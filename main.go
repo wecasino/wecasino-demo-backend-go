@@ -194,7 +194,7 @@ func main() {
 	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
 	selfHostAmqp := loadAMQPClient(AMQP_CONNECTION_STRING)
 
-	wecasinoQueue := queue.NewCasinoQueue(service, platformCode, exchange, selfHostAmqp)
+	wecasinoQueue := queue.NewCasinoQueue(ctx, service, platformCode, exchange, selfHostAmqp)
 
 	wecasinoQueue.HandleGameProvideStateChange(HandleGameProvideStateChange)
 	wecasinoQueue.HandleDealerLogin(HandleDealerLogin)

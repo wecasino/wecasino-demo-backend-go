@@ -3,7 +3,6 @@ package weamqp
 import (
 	"context"
 	"errors"
-	"log"
 	"net/url"
 	"sync"
 	"time"
@@ -99,6 +98,8 @@ type Client struct {
 	isReady          bool
 	shouldRun        bool
 	mapSubscriptions sync.Map
+
+	doRemove bool
 }
 
 func (client *Client) setReady(ready bool) {
@@ -127,11 +128,12 @@ func (client *Client) connect() (*amqp091.Connection, error) {
 	}
 
 	if err != nil {
+		logrus.Errorf("[AMQP] connect fail err: [%v]", err)
 		return nil, err
 	}
 
 	client.changeConnection(conn)
-	log.Println("[AMQP] Connected!")
+	logrus.Infof("[AMQP] Connected!")
 	return conn, nil
 }
 
@@ -168,7 +170,7 @@ func consume(channel *amqp091.Channel, s subscription) error {
 
 // init will initialize channel & declare queue
 func (client *Client) init(conn *amqp091.Connection) error {
-	log.Println("[AMQP] init")
+	logrus.Infof("[AMQP] init")
 	ch, err := conn.Channel()
 
 	if err != nil {
@@ -197,7 +199,7 @@ func (client *Client) init(conn *amqp091.Connection) error {
 		return true
 	})
 	client.isReady = true
-	log.Println("[AMQP] Setup!")
+	logrus.Infof("[AMQP] Setup!")
 
 	return nil
 }
@@ -211,7 +213,7 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 		err := client.init(conn)
 
 		if err != nil {
-			log.Println("[AMQP] Failed to initialize channel. Retrying... err:", err)
+			logrus.Infof("[AMQP] Failed to initialize channel. Retrying... err:", err)
 
 			select {
 			case <-client.done:
@@ -230,10 +232,10 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 		case <-client.done:
 			return true
 		case err := <-client.notifyConnClose:
-			log.Println("[AMQP] Connection closed with error: ", err.Error(), ". Reconnecting...")
+			logrus.Infof("[AMQP] Connection closed with error: ", err.Error(), ". Reconnecting...")
 			return false
 		case <-client.notifyChanClose:
-			log.Println("[AMQP] Channel closed. Re-running init...")
+			logrus.Infof("[AMQP] Channel closed. Re-running init...")
 		}
 	}
 }
@@ -243,11 +245,11 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 func (client *Client) handleReconnect() {
 	for {
 		client.isReady = false
-		log.Println("[AMQP] handleReconnect Attempting to connect")
+		logrus.Infof("[AMQP] handleReconnect Attempting to connect")
 
 		conn, err := client.connect()
 		if err != nil {
-			log.Println("[AMQP] Failed to connect. Retrying...")
+			logrus.Infof("[AMQP] Failed to connect. Retrying...")
 			select {
 			case <-client.done:
 				return
@@ -368,6 +370,8 @@ func (client *Client) RemoveQueueDeclare(queue string) {
 	if client._channel != nil {
 		client._channel.QueueDelete(queue, false, false, false)
 	}
+	time.Sleep(2 * time.Second)
+	client.doRemove = false
 }
 
 func (client *Client) RemoveAllQueueDeclare() {
@@ -394,6 +398,7 @@ func (client *Client) QueueBindDeclare(declare QueueBindDeclare) error {
 }
 
 func (client *Client) RemoveQueueBindDeclare(exchange, queue string) {
+	client.doRemove = true
 	value, loaded := client.queueBindDeclares.LoadAndDelete(exchange + queue)
 	if loaded && value != nil && client._channel != nil {
 		declare, ok := value.(*QueueBindDeclare)
@@ -499,7 +504,7 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 	for {
 		err := client.unsafePush(ctx, exchange, key, msg)
 		if err != nil {
-			log.Println("[AMQP] Push failed. Retrying...")
+			logrus.Infof("[AMQP] Push failed. Retrying...")
 			select {
 			case <-client.done:
 				return errShutdown
@@ -510,12 +515,12 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 		select {
 		case confirm := <-client.notifyConfirm:
 			if confirm.Ack {
-				log.Println("[AMQP] Push confirmed!")
+				logrus.Infof("[AMQP] Push confirmed!")
 				return nil
 			}
 		case <-time.After(resendDelay):
 		}
-		log.Println("[AMQP] Push didn't confirm. Retrying...")
+		logrus.Infof("[AMQP] Push didn't confirm. Retrying...")
 	}
 }
 
@@ -526,36 +531,80 @@ func (client *Client) Publisher(exchange string) *Publisher {
 	}
 }
 
-func (client *Client) SubscribeQueue(queue string, autoAct bool, fn func(Delivery)) error {
+func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct bool, fn func(Delivery)) error {
 	// log.Infof("[AMQP] SubscribeQueue")
-	_subscription := &subscription{
+
+	client.mu.Lock()
+	subscription := &subscription{
 		queue:    queue,
 		handler:  fn,
 		consumer: queue,
 		autoAct:  autoAct,
 	}
-	client.mapSubscriptions.Store(queue, _subscription)
-	if client._channel != nil {
+	client.mapSubscriptions.Store(queue, subscription)
+	getChannel := client.GetChannel()
+	client.mu.Unlock()
+
+	if getChannel != nil {
 		// log.Infof("[AMQP] client channel not nil")
-		chDelivery, err := client._channel.Consume(queue, "", autoAct, false, false, false, nil)
+		chDelivery, err := getChannel.Consume(queue, "", autoAct, false, false, false, nil)
 		if err != nil {
-			log.Printf("[AMQP] Consume err: %v", err)
+			logrus.Infof("[AMQP] Consume err:[%v]", err)
 			return err
 		}
-		// log.Infof("[AMQP] run go func")
+
+		closeChan := make(chan *amqp091.Error)
+		client._conn.NotifyClose(closeChan)
+
+		// 循环处理消息
 		go func() {
-			// log.Infof("[AMQP] loop call fn delivery")
-			for delivery := range chDelivery {
-				// log.Infof("[AMQP] call delivery func")
-				fn(delivery)
-				err = delivery.Ack(false)
-				if err != nil {
-					log.Fatalf("failed ack: %v", err)
+			for {
+				select {
+				case <-ctx.Done():
+					client._conn.Close()
+					return //exit loop
+				case err = <-closeChan:
+					client._conn.Close()
+					return //exit loop
+				case delivery, ok := <-chDelivery:
+					if !ok {
+						if client.doRemove == true {
+							logrus.Infof("[AMQP] doRemove")
+							return
+						}
+						logrus.Infof("[AMQP] Consumer channel closed, attempting to reconnect...")
+						// 等待一段时间后重新连接
+						time.Sleep(1 * time.Second)
+						// 重新建立连接
+						_, err := client.connect()
+						if err != nil {
+							logrus.Errorf("[AMQP] Failed to reconnect to RabbitMQ:[%v]", err)
+							continue
+						}
+						chDelivery, err = client._channel.Consume(queue, "", autoAct, false, false, false, nil)
+						if err != nil {
+							logrus.Errorf("[AMQP] Consume err:[%v]", err)
+							return
+						}
+
+						if err != nil {
+							logrus.Errorf("[AMQP] Failed to register a consumer:[%v]\n", err)
+							continue
+						}
+						// logrus.Infof("Reconnected to RabbitMQ successfully")
+						continue
+					}
+
+					fn(delivery)
+					err = delivery.Ack(false)
+					if err != nil {
+						logrus.Fatalf("[AMQP] failed ack:[%v]", err)
+					}
 				}
 			}
 		}()
 	} else {
-		log.Println("[AMQP] client channel is nil")
+		logrus.Infof("[AMQP] client channel is nil")
 	}
 
 	return nil

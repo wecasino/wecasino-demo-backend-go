@@ -217,9 +217,13 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 	return func(delivery amqp091.Delivery) {
 		log.Printf("receive StateChange headers: %v", delivery.Headers)
 
+		traceId := getTraceId(delivery.Headers["traceID"])
+		ctx, _ := s.tracer.Start(context.Background(), traceId)
+
 		if delivery.Type != pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String() {
 			return
 		}
+
 		gameProvide := pbRecorder.GameProvide{}
 		err := proto.Unmarshal(delivery.Body, &gameProvide)
 		if err != nil {
@@ -254,7 +258,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 					"gameCode":     gameCode,
 				},
 			})
-			s.amqp.SubscribeQueue(queue, false, s.genGameHandler(gameCode))
+			s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
 		case pbRecorder.GameProvideState_GAME_PROVIDE_CLOSE, pbRecorder.GameProvideState_GAME_PROVIDE_IN_MAINTENANCE:
 			logrus.Infof("remove Queue:[%v]", queue)
 			s.amqp.RemoveQueueBindDeclare(s.exchange, queue)
@@ -307,7 +311,7 @@ func (s *WECasinoQueue) End() {
 	s.amqp.Close()
 }
 
-func NewCasinoQueue(service, platformCode, exchange string, amqp *weamqp.Client) *WECasinoQueue {
+func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string, amqp *weamqp.Client) *WECasinoQueue {
 
 	instanceId := uuid.NewString()
 	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
@@ -339,7 +343,7 @@ func NewCasinoQueue(service, platformCode, exchange string, amqp *weamqp.Client)
 		amqp:         amqp,
 		handlers:     sync.Map{},
 	}
-	amqp.SubscribeQueue(queue, false, s.genProvideStateChangeHandler())
+	amqp.SubscribeQueue(ctx, queue, false, s.genProvideStateChangeHandler())
 
 	return s
 }
