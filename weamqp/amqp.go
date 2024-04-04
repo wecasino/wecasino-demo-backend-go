@@ -605,7 +605,7 @@ func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct 
 							logrus.Errorf("[AMQP] Failed to register a consumer:[%v]\n", err)
 							continue
 						}
-						// logrus.Infof("Reconnected to RabbitMQ successfully")
+						// logrus.Infof("[AMQP] Reconnected to RabbitMQ successfully")
 						continue
 					}
 
