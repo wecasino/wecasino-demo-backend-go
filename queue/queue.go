@@ -307,9 +307,9 @@ func (s *WECasinoQueue) End() {
 	if s.amqp == nil {
 		return
 	}
-	logrus.Info("run remove queue")
-	s.amqp.RemoveAllQueueBindDeclare(s.exchange)
-	s.amqp.RemoveAllQueueDeclare()
+	// logrus.Info("run remove queue")
+	// s.amqp.RemoveAllQueueBindDeclare(s.exchange)
+	// s.amqp.RemoveAllQueueDeclare()
 	s.amqp.Close()
 }
 
