@@ -10,25 +10,29 @@ type Publisher struct {
 }
 
 func (p *Publisher) Publish(routeKey string, msg *Publishing) error {
-	ctx := context.Background()
-	return p.client.Publish(ctx, p.exg, routeKey, msg)
+	// ctx := context.Background()
+	// return p.client.Publish(ctx, p.exg, routeKey, msg)
+	return nil
 }
 
 func (p *Publisher) PublishWithContext(ctx context.Context, routeKey string, msg *Publishing) error {
-	return p.client.Publish(ctx, p.exg, routeKey, msg)
+	// return p.client.Publish(ctx, p.exg, routeKey, msg)
+	return nil
 }
 
 func (p *Publisher) PublishData(routeKey string, data []byte) error {
-	ctx := context.Background()
-	return p.client.Publish(ctx, p.exg, routeKey, &Publishing{
-		ContentType: "text/plain",
-		Body:        data,
-	})
+	// ctx := context.Background()
+	// return p.client.Publish(ctx, p.exg, routeKey, &Publishing{
+	// 	ContentType: "text/plain",
+	// 	Body:        data,
+	// })
+	return nil
 }
 
 func (p *Publisher) PublishDataWithContext(ctx context.Context, routeKey string, data []byte) error {
-	return p.client.Publish(ctx, p.exg, routeKey, &Publishing{
-		ContentType: "text/plain",
-		Body:        data,
-	})
+	// return p.client.Publish(ctx, p.exg, routeKey, &Publishing{
+	// 	ContentType: "text/plain",
+	// 	Body:        data,
+	// })
+	return nil
 }
