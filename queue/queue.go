@@ -245,11 +245,10 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			if s.amqp == nil {
 				return
 			}
-			var setAutoDelect = weamqp.AtomicBool{}
-			setAutoDelect.Set(false)
+
 			s.amqp.QueueDeclare(weamqp.QueueDeclare{
 				Name:       queue,
-				AutoDelete: setAutoDelect, // 手動檢查刪除
+				AutoDelete: false, // 手動檢查刪除
 			})
 			s.amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 				Exchange: s.exchange,
@@ -316,30 +315,28 @@ func (s *WECasinoQueue) End() {
 
 func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string, amqp *weamqp.Client) *WECasinoQueue {
 
-	instanceId := uuid.NewString()
-	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
+	// instanceId := uuid.NewString()
+	// queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
 
-	var setAutoDelect = weamqp.AtomicBool{}
-	setAutoDelect.Set(false)
-	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
-		Name:       exchange,
-		Kind:       weamqp.ExchangeHeaders,
-		AutoDelete: setAutoDelect,
-	})
-	setAutoDelect.Set(true)
-	amqp.QueueDeclare(weamqp.QueueDeclare{
-		Name:       queue,
-		AutoDelete: setAutoDelect,
-	})
-	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
-		Exchange: exchange,
-		Queue:    queue,
-		Headers: amqp091.Table{
-			"x-match":    "all",
-			"notifyType": pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String(),
-			platformCode: true,
-		},
-	})
+	// amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
+	// 	Name:       exchange,
+	// 	Kind:       weamqp.ExchangeHeaders,
+	// 	AutoDelete: false,
+	// })
+
+	// amqp.QueueDeclare(weamqp.QueueDeclare{
+	// 	Name:       queue,
+	// 	AutoDelete: true,
+	// })
+	// amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
+	// 	Exchange: exchange,
+	// 	Queue:    queue,
+	// 	Headers: amqp091.Table{
+	// 		"x-match":    "all",
+	// 		"notifyType": pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String(),
+	// 		platformCode: true,
+	// 	},
+	// })
 
 	s := &WECasinoQueue{
 		// instanceId:   instanceId,
@@ -350,7 +347,7 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 		amqp:         amqp,
 		handlers:     sync.Map{},
 	}
-	amqp.AmqpOpsSubscribe(ctx, exchange, service, platformCode, s.genProvideStateChangeHandler())
+	amqp.AmqpOpsSubscribe(ctx, exchange, service, platformCode, false, s.genProvideStateChangeHandler())
 	// amqp.SubscribeQueue(ctx, queue, setAutoDelect.Get(), s.genProvideStateChangeHandler())
 
 	return s
