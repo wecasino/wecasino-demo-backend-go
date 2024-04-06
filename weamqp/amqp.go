@@ -121,6 +121,21 @@ type Client struct {
 	doRemove bool
 }
 
+func LoadAMQPClient(_url string) (*Client, error) {
+
+	if _url == "" {
+		return nil, errors.New("url is nil")
+	}
+	amqpUrl, err := url.Parse(_url)
+	if err != nil {
+		logrus.Fatalf("amqp url: %v parse failed with error: %v", amqpUrl, err)
+		// log.ErrorCtx(context.TODO(), "[AMQP]", "url parse err", err)
+		return nil, err
+	}
+	client := NewClient(*amqpUrl, nil)
+	return client, nil
+}
+
 func (client *Client) setReady(ready bool) {
 	client.mu.Lock()
 	client.isReady = ready
@@ -292,16 +307,17 @@ func (client *Client) declareExchange(declare *ExchangeDeclare) error {
 		return nil
 	}
 	passive := declare.exist
-	if passive {
-		err := client._channel.ExchangeDeclarePassive(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
-		if err != nil {
-			return err
-		}
-	} else {
+	if !passive {
 		err := client._channel.ExchangeDeclare(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
 		if err != nil {
 			declare.exist = true
 			passive = true
+		}
+	}
+	if passive {
+		err := client._channel.ExchangeDeclarePassive(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -312,15 +328,18 @@ func (client *Client) declareQueue(declare *QueueDeclare) error {
 		return nil
 	}
 	passive := declare.exist
-	if passive {
-		if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil); err != nil {
-			return err
-		}
-	} else {
+	// log.Infof("[AMQP] passive:[%v]", passive)
+	if !passive {
+		// log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
 		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete, false, false, nil)
 		if err != nil {
 			declare.exist = true
 			passive = true
+		}
+	}
+	if passive {
+		if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil); err != nil {
+			return err
 		}
 	}
 	return nil

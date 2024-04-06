@@ -299,6 +299,7 @@ func (s *WECasinoQueue) Start() {
 	if s.amqp == nil {
 		return
 	}
+	logrus.Infof("[AMQP] Start then Connect")
 	s.amqp.Connect()
 
 }

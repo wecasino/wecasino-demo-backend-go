@@ -192,7 +192,12 @@ func main() {
 	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
 	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
-	selfHostAmqp := loadAMQPClient(AMQP_CONNECTION_STRING)
+	amqpDsn := readEnvMustNotEmpty(AMQP_CONNECTION_STRING)
+	selfHostAmqp, err := weamqp.LoadAMQPClient(amqpDsn)
+	if err != nil {
+		// logrus.ErrorCtx(ctx, "[startup]", "weamqp.LoadAMQPClient err", err)
+		logrus.Error("LoadAMQPClient err:[%v]", err)
+	}
 
 	wecasinoQueue := queue.NewCasinoQueue(ctx, service, platformCode, exchange, selfHostAmqp)
 
