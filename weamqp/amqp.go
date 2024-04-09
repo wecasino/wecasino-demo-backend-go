@@ -164,6 +164,7 @@ func consume(channel *amqp091.Channel, s *subscription) error {
 
 // init will initialize channel & declare queue
 func (client *Client) init(conn *amqp091.Connection) error {
+	logrus.Infof("[AMQP] init")
 	ch, err := conn.Channel()
 
 	if err != nil {
