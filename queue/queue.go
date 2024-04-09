@@ -235,7 +235,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			log.Print("gameCode empty")
 			return
 		}
-		log.Printf("receive StateChange gameProvide.State:[%v]", gameProvide.State)
+		logrus.WithContext(ctx).Printf("receive StateChange gameProvide.State:[%v]", gameProvide.State)
 
 		queue := fmt.Sprintf("%v:%v:game:%v", s.service, s.platformCode, gameProvide.GameCode)
 
@@ -259,7 +259,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 					"gameCode":     gameCode,
 				},
 			})
-			s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
+			// s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
 		default:
 			logrus.Infof("enter default gameProvide.State:[%v]", gameProvide.State)
 		}
@@ -271,8 +271,8 @@ func (s *WECasinoQueue) GenInputFunc() func(amqp091.Delivery) {
 		if s.amqp == nil {
 			return
 		}
-		logrus.Infof("GenInputFunc exchange:[%v]", s.exchange)
-		logrus.Infof("GenInputFunc headers:[%v]", d.Headers)
+		// logrus.Infof("GenInputFunc exchange:[%v]", s.exchange)
+		// logrus.Infof("GenInputFunc headers:[%v]", d.Headers)
 		s.amqp.Publish(context.Background(), s.exchange, d.RoutingKey, &amqp091.Publishing{
 			Headers:         d.Headers,
 			ContentType:     d.ContentType,

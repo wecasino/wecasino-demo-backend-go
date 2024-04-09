@@ -97,7 +97,9 @@ func handleMessage(msg amqp091.Delivery) {
 
 	typeUrl := msg.Type
 	gameCode := fmt.Sprintf("%v", msg.Headers["gameCode"])
-	if strings.Contains(gameCode, testGame) {
+	// log.Printf("[AMQPCallBack] gameCode:[%v]", gameCode)
+	// log.Printf("[AMQPCallBack] testGame:[%v]", testGame)
+	if strings.Contains(testGame, gameCode) {
 
 		log.WithContext(traceCtx).Infof("[AMQPCallBack] receive gameCode:[%v]", gameCode)
 

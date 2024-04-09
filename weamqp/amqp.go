@@ -444,7 +444,7 @@ func (client *Client) QueueDeclare(declare QueueDeclare) error {
 }
 
 func (client *Client) QueueBindDeclare(declare QueueBindDeclare) error {
-	client.queueBindDeclares.LoadOrStore(declare.Exchange+declare.Queue, &declare)
+	client.queueBindDeclares.LoadOrStore(declare.Exchange+declare.Queue, declare)
 	if client.channel == nil {
 		return nil
 	}
@@ -537,7 +537,7 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 	for {
 		err := client.unsafePush(ctx, exchange, key, msg)
 		if err != nil {
-			logrus.Infof("[AMQP] Push failed. Retrying...")
+			logrus.Infof("[AMQP] Push failed. Retrying...[%v]", err)
 			select {
 			case <-client.chDone:
 				return errShutdown

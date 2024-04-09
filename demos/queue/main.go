@@ -74,7 +74,7 @@ func printJSON(ctx context.Context, object any) {
 	} else if len(data) > 0 {
 		span.SetAttributes(attribute.String("json", string(data)))
 	}
-	defer span.End()
+	// defer span.End()
 }
 
 func HandleGameProvideStateChange(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
@@ -198,16 +198,16 @@ func main() {
 	wecasinoQueue.HandleRoundCancel(HandleRoundCancel)
 
 	// notify api
-	// notifyApi := loadAMQPClient(NOTIFY_API_URL)
-	// notifyApi.QueueDeclare(weamqp.QueueDeclare{
-	// 	Name:       platformCode,
-	// 	AutoDelete: false,
-	// })
-	// notifyApi.SubscribeQueue(ctx, platformCode, false, wecasinoQueue.GenInputFunc())
+	notifyApi := loadAMQPClient(NOTIFY_API_URL)
+	notifyApi.QueueDeclare(weamqp.QueueDeclare{
+		Name:       platformCode,
+		AutoDelete: false,
+	})
+	notifyApi.SubscribeQueue(ctx, platformCode, false, wecasinoQueue.GenInputFunc())
 
 	// start
 	wecasinoQueue.Start()
-	// notifyApi.Connect()
+	notifyApi.Connect()
 
 	// 監聽關機訊號
 	quit := make(chan os.Signal, 1)
@@ -215,7 +215,7 @@ func main() {
 	<-quit
 	log.Println("shut down start")
 
-	// notifyApi.Close()
+	notifyApi.Close()
 	wecasinoQueue.End()
 	if err := tp.Shutdown(ctx); err != nil {
 		log.Fatalf("Error shutting down tracer provide: %v", err)
