@@ -357,6 +357,7 @@ func (client *Client) declareQueue(declare *QueueDeclare) error {
 }
 
 func (client *Client) resetDeclares(channel *amqp091.Channel) error {
+	logrus.Infof("resetDeclares")
 	client._channel = channel
 	var err error
 	client.exchangeDeclares.Range(func(key any, value any) bool {
@@ -372,6 +373,8 @@ func (client *Client) resetDeclares(channel *amqp091.Channel) error {
 	if err != nil {
 		return err
 	}
+
+	logrus.Infof("resetDeclares range queueDeclares")
 	client.queueDeclares.Range(func(key any, value any) bool {
 		declare, ok := value.(*QueueDeclare)
 		if ok {
