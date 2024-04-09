@@ -314,45 +314,86 @@ func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
 	return modify, nil
 }
 
+//	func (client *Client) resetDeclares(channel *amqp091.Channel) error {
+//		client.channel = channel
+//		var err error
+//		client.exchangeDeclares.Range(func(key any, value any) bool {
+//			declare, ok := value.(ExchangeDeclare)
+//			if ok {
+//				updatePassive, errDeclare := client.declareExchange(declare)
+//				if errDeclare != nil {
+//					err = errors.Join(err, errDeclare)
+//					return true
+//				}
+//				if updatePassive {
+//					declare.Passive = true
+//					client.queueDeclares.Store(key, declare)
+//				}
+//			}
+//			return true
+//		})
+//		client.queueDeclares.Range(func(key any, value any) bool {
+//			declare, ok := value.(QueueDeclare)
+//			if ok {
+//				updatePassive, errDeclare := client.declareQueue(declare)
+//				if errDeclare != nil {
+//					err = errors.Join(err, errDeclare)
+//					return true
+//				}
+//				if updatePassive {
+//					declare.Passive = true
+//					client.queueDeclares.Store(key, declare)
+//				}
+//			}
+//			return true
+//		})
+//		client.queueBindDeclares.Range(func(key any, value any) bool {
+//			declare, ok := value.(QueueBindDeclare)
+//			if ok {
+//				err = client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
+//				if err != nil {
+//					logrus.WithError(err).Error("[AMQP]", "QueueBind error")
+//					return false
+//				}
+//			}
+//			return true
+//		})
+//		return err
+//	}
 func (client *Client) resetDeclares(channel *amqp091.Channel) error {
 	client.channel = channel
 	var err error
 	client.exchangeDeclares.Range(func(key any, value any) bool {
 		declare, ok := value.(ExchangeDeclare)
 		if ok {
-			updatePassive, errDeclare := client.declareExchange(declare)
-			if errDeclare != nil {
-				err = errors.Join(err, errDeclare)
-				return true
-			}
-			if updatePassive {
-				declare.Passive = true
-				client.queueDeclares.Store(key, declare)
+			_, err = client.declareExchange(declare)
+			if err != nil {
+				return false
 			}
 		}
 		return true
 	})
+	if err != nil {
+		return err
+	}
 	client.queueDeclares.Range(func(key any, value any) bool {
 		declare, ok := value.(QueueDeclare)
 		if ok {
-			updatePassive, errDeclare := client.declareQueue(declare)
-			if errDeclare != nil {
-				err = errors.Join(err, errDeclare)
-				return true
-			}
-			if updatePassive {
-				declare.Passive = true
-				client.queueDeclares.Store(key, declare)
+			_, err = client.declareQueue(declare)
+			if err != nil {
+				return false
 			}
 		}
 		return true
 	})
+	if err != nil {
+		return err
+	}
 	client.queueBindDeclares.Range(func(key any, value any) bool {
-		declare, ok := value.(QueueBindDeclare)
+		declare, ok := value.(*QueueBindDeclare)
 		if ok {
 			err = client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
 			if err != nil {
-				logrus.WithError(err).Error("[AMQP]", "QueueBind error")
 				return false
 			}
 		}
