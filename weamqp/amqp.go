@@ -328,7 +328,6 @@ func (client *Client) declareQueue(declare *QueueDeclare) error {
 		return nil
 	}
 	passive := declare.exist
-	// log.Infof("[AMQP] passive:[%v]", passive)
 	if !passive {
 		// log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
 		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete, false, false, nil)

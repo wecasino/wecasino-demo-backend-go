@@ -316,28 +316,28 @@ func (s *WECasinoQueue) End() {
 
 func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string, amqp *weamqp.Client) *WECasinoQueue {
 
-	// instanceId := uuid.NewString()
-	// queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
+	instanceId := uuid.NewString()
+	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
 
-	// amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
-	// 	Name:       exchange,
-	// 	Kind:       weamqp.ExchangeHeaders,
-	// 	AutoDelete: false,
-	// })
+	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
+		Name:       exchange,
+		Kind:       weamqp.ExchangeHeaders,
+		AutoDelete: false,
+	})
 
-	// amqp.QueueDeclare(weamqp.QueueDeclare{
-	// 	Name:       queue,
-	// 	AutoDelete: true,
-	// })
-	// amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
-	// 	Exchange: exchange,
-	// 	Queue:    queue,
-	// 	Headers: amqp091.Table{
-	// 		"x-match":    "all",
-	// 		"notifyType": pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String(),
-	// 		platformCode: true,
-	// 	},
-	// })
+	amqp.QueueDeclare(weamqp.QueueDeclare{
+		Name:       queue,
+		AutoDelete: true,
+	})
+	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
+		Exchange: exchange,
+		Queue:    queue,
+		Headers: amqp091.Table{
+			"x-match":    "all",
+			"notifyType": pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String(),
+			platformCode: true,
+		},
+	})
 
 	s := &WECasinoQueue{
 		// instanceId:   instanceId,
@@ -348,8 +348,8 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 		amqp:         amqp,
 		handlers:     sync.Map{},
 	}
-	amqp.AmqpOpsSubscribe(ctx, exchange, service, platformCode, false, s.genProvideStateChangeHandler())
-	// amqp.SubscribeQueue(ctx, queue, setAutoDelect.Get(), s.genProvideStateChangeHandler())
+	// amqp.AmqpOpsSubscribe(ctx, exchange, service, platformCode, false, s.genProvideStateChangeHandler())
+	amqp.SubscribeQueue(ctx, queue, false, s.genProvideStateChangeHandler())
 
 	return s
 }
