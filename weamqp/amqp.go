@@ -375,14 +375,20 @@ func (client *Client) ExchangeDeclare(declare ExchangeDeclare) error {
 }
 
 func (client *Client) QueueDeclare(declare QueueDeclare) error {
-	updatePassive, err := client.declareQueue(declare)
+	// updatePassive, err := client.declareQueue(declare)
+	// if err != nil {
+	// 	return err
+	// }
+	// if updatePassive {
+	// 	declare.Passive = true
+	// 	logrus.Info("save declare name:[%v]", declare.Name)
+	// 	client.queueDeclares.Store(declare.Name, declare)
+	// }
+	_declare := declare
+	client.queueDeclares.LoadOrStore(_declare.Name, &_declare)
+	_, err := client.declareQueue(_declare)
 	if err != nil {
 		return err
-	}
-	if updatePassive {
-		declare.Passive = true
-		logrus.Info("save declare name:[%v]", declare.Name)
-		client.queueDeclares.Store(declare.Name, declare)
 	}
 	return nil
 }
