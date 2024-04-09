@@ -324,23 +324,35 @@ func (client *Client) declareExchange(declare *ExchangeDeclare) error {
 }
 
 func (client *Client) declareQueue(declare *QueueDeclare) error {
+	logrus.Infof("declareQueue declare:[%v]", declare)
 	if client._channel == nil {
+		logrus.Errorf("declareQueue channel is nil return")
 		return nil
 	}
 	passive := declare.exist
+	logrus.Infof("declareQueue passive:[%v]", passive)
 	if !passive {
 		// log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
 		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete, false, false, nil)
+		logrus.Infof("declareQueue QueueDeclare err:[%v]", err)
 		if err != nil {
 			declare.exist = true
 			passive = true
 		}
 	}
+	logrus.Infof("declareQueue QueueDeclare check passive:[%v]", passive)
 	if passive {
-		if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil); err != nil {
+		_, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil)
+		logrus.Infof("declareQueue QueueDeclarePassive err:[%v]", err)
+		if err != nil {
 			return err
 		}
+		// if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil); err != nil {
+		// 	return err
+		// }
 	}
+
+	logrus.Infof("declareQueue final return nil")
 	return nil
 }
 
