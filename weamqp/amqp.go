@@ -289,6 +289,7 @@ func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
 	defer client.mu.Unlock()
 
 	if client.channel == nil {
+		logrus.Infof("[amqp] declareQueue channel is nil return")
 		return false, nil
 	}
 

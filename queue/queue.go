@@ -312,7 +312,7 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 	instanceId := uuid.NewString()
 	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
-	amqp.Connect()
+
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
 		Name: exchange,
 		Kind: weamqp.ExchangeHeaders,
