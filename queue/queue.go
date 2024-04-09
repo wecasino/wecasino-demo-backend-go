@@ -271,6 +271,8 @@ func (s *WECasinoQueue) GenInputFunc() func(amqp091.Delivery) {
 		if s.amqp == nil {
 			return
 		}
+		logrus.Infof("GenInputFunc exchange:[%v]", s.exchange)
+		logrus.Infof("GenInputFunc headers:[%v]", d.Headers)
 		s.amqp.Publish(context.Background(), s.exchange, d.RoutingKey, &amqp091.Publishing{
 			Headers:         d.Headers,
 			ContentType:     d.ContentType,
@@ -312,17 +314,18 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 	instanceId := uuid.NewString()
 	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
+	logrus.Infof("NewCasinoQueue queue:[%v]", queue)
 
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
-		Name: exchange,
-		Kind: weamqp.ExchangeHeaders,
-		// Durable: false,
+		Name:    exchange,
+		Kind:    weamqp.ExchangeHeaders,
+		Durable: true,
 	})
 
 	amqp.QueueDeclare(weamqp.QueueDeclare{
-		Name: queue,
-		// Durable:   false,
-		// Exclusive: true,
+		Name:      queue,
+		Durable:   true,
+		Exclusive: true,
 	})
 
 	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
