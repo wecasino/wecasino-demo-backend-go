@@ -284,7 +284,7 @@ func (client *Client) declareExchange(declare ExchangeDeclare) (bool, error) {
 }
 
 func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
-
+	logrus.Infof("[amqp] declareQueue declare:[%v]", declare)
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
@@ -294,8 +294,11 @@ func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
 
 	passive := declare.Passive
 	modify := false
+	logrus.Infof("[amqp] passive:[%v]", passive)
 	if !passive {
+		logrus.Infof("run !passive")
 		_, err := client.channel.QueueDeclare(declare.Name, declare.Durable, declare.AutoDelete, declare.Exclusive, false, declare.Arguments)
+		logrus.Infof("[amqp] client.channel.QueueDeclare err:[%v]", err)
 		if err != nil { // 改使用passive
 			passive = true
 		}
@@ -303,6 +306,7 @@ func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
 	}
 	if passive {
 		_, err := client.channel.QueueDeclarePassive(declare.Name, declare.Durable, declare.AutoDelete, declare.Exclusive, false, declare.Arguments)
+		logrus.Infof("[amqp] client.channel.QueueDeclarePassive err:[%v]", err)
 		return modify, err
 	}
 	return modify, nil
@@ -376,6 +380,7 @@ func (client *Client) QueueDeclare(declare QueueDeclare) error {
 	}
 	if updatePassive {
 		declare.Passive = true
+		logrus.Info("save declare name:[%v]", declare.Name)
 		client.queueDeclares.Store(declare.Name, declare)
 	}
 	return nil
@@ -518,7 +523,8 @@ func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct 
 		return err
 
 	} else {
-		logrus.Info(ctx, "[AMQP]", "client channel is nil", queue)
+		// logrus.Infof(ctx, "[AMQP]", "client channel is nil:[%v]", queue)
+		logrus.WithContext(ctx).Infof("[AMQP] client channel is nil:[%v]", queue)
 	}
 
 	return nil

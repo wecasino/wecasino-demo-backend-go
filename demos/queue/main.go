@@ -25,14 +25,14 @@ import (
 	pbRecorder "github.com/wecasino/wecasino-proto/pbgo/recorder"
 )
 
+const SERVICE = "SERVICE"
+
 const PLATFORM_CODE = "PLATFORM_CODE"
-const NOTIFY_API_URL = "NOTIFY_API_URL"
-const PROVIDER_API_URL = "PROVIDER_API_URL"
 
 const AMQP_CONNECTION_STRING = "AMQP_CONNECTION_STRING"
 const AMQP_EXCHANGE = "AMQP_EXCHANGE"
 
-const SERVICE = "SERVICE"
+const NOTIFY_API_URL = "NOTIFY_API_URL"
 
 var countRound = 0
 var countRoundStart = 0
@@ -170,14 +170,6 @@ func main() {
 		sdktrace.WithBatcher(exporter),
 	)
 	otel.SetTracerProvider(tp)
-
-	// provider api 服務
-	// conn, err := grpc.Dial(readEnvMustNotEmpty(PROVIDER_API_URL))
-	// if err != nil {
-	// 	log.Panic(err)
-	// }
-	// record := pbRecorder.NewRecorderReadServiceClient(conn)
-	// provider := pbRecorder.NewProviderServiceClient(conn)
 
 	// self host queue
 	service := readEnvMustNotEmpty(SERVICE)

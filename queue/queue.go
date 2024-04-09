@@ -291,8 +291,8 @@ func (s *WECasinoQueue) GenInputFunc() func(amqp091.Delivery) {
 }
 
 func (s *WECasinoQueue) Start() {
-
 	if s.amqp == nil {
+		logrus.Infof("[AMQP] Start amqp is nil")
 		return
 	}
 	logrus.Infof("[AMQP] Start then Connect")
@@ -312,17 +312,17 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 	instanceId := uuid.NewString()
 	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
-
+	amqp.Connect()
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
-		Name:    exchange,
-		Kind:    weamqp.ExchangeHeaders,
-		Durable: true,
+		Name: exchange,
+		Kind: weamqp.ExchangeHeaders,
+		// Durable: false,
 	})
 
 	amqp.QueueDeclare(weamqp.QueueDeclare{
-		Name:      queue,
-		Durable:   true,
-		Exclusive: true,
+		Name: queue,
+		// Durable:   false,
+		// Exclusive: true,
 	})
 
 	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
