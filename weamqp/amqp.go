@@ -3,15 +3,13 @@ package weamqp
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
-	pbRecorder "github.com/wecasino/wecasino-proto/pbgo/recorder"
 )
 
 const (
@@ -41,33 +39,23 @@ type Config = amqp091.Config
 type Delivery = amqp091.Delivery
 type Connection = amqp091.Connection
 
-// type AtomicBool struct {
-// 	flag int32
-// }
-
-// func (b *AtomicBool) Set(value bool) {
-// 	if value {
-// 		atomic.StoreInt32(&b.flag, 1)
-// 	} else {
-// 		atomic.StoreInt32(&b.flag, 0)
-// 	}
-// }
-
-// func (b *AtomicBool) Get() bool {
-// 	return atomic.LoadInt32(&b.flag) != 0
-// }
-
 type ExchangeDeclare struct {
 	Name       string
 	Kind       ExchangeKind
-	AutoDelete bool
-	exist      bool
+	Passive    bool
+	Durable    bool // amqp restart node 不會消失，message 通常需要一併宣告presist
+	AutoDelete bool // last consumer cancel or gone
+	Internal   bool
+	Arguments  amqp091.Table
 }
 
 type QueueDeclare struct {
 	Name       string
-	AutoDelete bool
-	exist      bool
+	Passive    bool
+	Durable    bool // amqp restart node 不會消失，message 通常需要一併宣告presist
+	AutoDelete bool // last consumer cancel or gone
+	Exclusive  bool
+	Arguments  amqp091.Table
 }
 
 type QueueBindDeclare struct {
@@ -83,10 +71,11 @@ type ClientOptions struct {
 }
 
 type subscription struct {
-	queue    string
-	consumer string
-	autoAct  bool
-	handler  func(Delivery)
+	queue     string
+	consumer  string
+	autoAct   bool
+	exclusive bool
+	handler   func(Delivery)
 }
 
 type AMQPPublisher interface {
@@ -105,49 +94,26 @@ type Client struct {
 	queueDeclares     sync.Map
 	queueBindDeclares sync.Map
 
-	_conn    *amqp091.Connection
-	_channel *amqp091.Channel
+	conn    *amqp091.Connection
+	channel *amqp091.Channel
 
-	doneCh           chan bool
-	readyCh          chan bool
+	chDone           chan bool
+	chReady          chan bool
 	notifyConnClose  chan *amqp091.Error
 	notifyChanClose  chan *amqp091.Error
 	notifyConfirm    chan amqp091.Confirmation
 	mu               sync.Mutex
-	isReady          bool
+	isReady          atomic.Bool
 	shouldRun        bool
 	mapSubscriptions sync.Map
-
-	doRemove bool
 }
 
-func LoadAMQPClient(_url string) (*Client, error) {
-
-	if _url == "" {
-		return nil, errors.New("url is nil")
-	}
-	amqpUrl, err := url.Parse(_url)
-	if err != nil {
-		logrus.Fatalf("amqp url: %v parse failed with error: %v", amqpUrl, err)
-		// log.ErrorCtx(context.TODO(), "[AMQP]", "url parse err", err)
-		return nil, err
-	}
-	client := NewClient(*amqpUrl, nil)
-	return client, nil
-}
-
-func (client *Client) setReady(ready bool) {
-	client.mu.Lock()
-	client.isReady = ready
-	client.mu.Unlock()
-}
-
-// changeConnection takes a new connection to the queue,
+// setConnection takes a new connection to the queue,
 // and updates the close listener to reflect this.
-func (client *Client) changeConnection(connection *amqp091.Connection) {
-	client._conn = connection
+func (client *Client) setConnection(connection *amqp091.Connection) {
+	client.conn = connection
 	client.notifyConnClose = make(chan *amqp091.Error, 1)
-	client._conn.NotifyClose(client.notifyConnClose)
+	client.conn.NotifyClose(client.notifyConnClose)
 }
 
 // connect will create a new amqp091 connection
@@ -162,36 +128,30 @@ func (client *Client) connect() (*amqp091.Connection, error) {
 	}
 
 	if err != nil {
-		logrus.Errorf("[AMQP] connect fail err: [%v]", err)
 		return nil, err
 	}
 
-	client.changeConnection(conn)
-	logrus.Infof("[AMQP] Connected!")
+	client.setConnection(conn)
 	return conn, nil
 }
 
 // changeChannel takes a new channel to the queue,
 // and updates the channel listeners to reflect this.
 func (client *Client) changeChannel(channel *amqp091.Channel) {
-	client._channel = channel
+	client.channel = channel
 	client.notifyChanClose = make(chan *amqp091.Error, 1)
 	client.notifyConfirm = make(chan amqp091.Confirmation, 1)
-	client._channel.NotifyClose(client.notifyChanClose)
-	client._channel.NotifyPublish(client.notifyConfirm)
+	client.channel.NotifyClose(client.notifyChanClose)
+	client.channel.NotifyPublish(client.notifyConfirm)
 }
 
-func (client *Client) GetChannel() *amqp091.Channel {
-	return client._channel
-}
-
-func (client *Client) GetConn() *amqp091.Connection {
-	return client._conn
-}
-
-func consume(channel *amqp091.Channel, s subscription) error {
-	chDelivery, err := channel.Consume(s.queue, s.consumer, s.autoAct, false, false, false, nil)
+func consume(channel *amqp091.Channel, s *subscription) error {
+	if s == nil {
+		return nil
+	}
+	chDelivery, err := channel.Consume(s.queue, s.consumer, s.autoAct, s.exclusive, false, false, nil)
 	if err != nil {
+		logrus.WithError(err).Error("[AMQP] consume err")
 		return err
 	}
 	go func() {
@@ -204,7 +164,6 @@ func consume(channel *amqp091.Channel, s subscription) error {
 
 // init will initialize channel & declare queue
 func (client *Client) init(conn *amqp091.Connection) error {
-	logrus.Infof("[AMQP] init")
 	ch, err := conn.Channel()
 
 	if err != nil {
@@ -212,28 +171,25 @@ func (client *Client) init(conn *amqp091.Connection) error {
 	}
 
 	err = ch.Confirm(false)
-
 	if err != nil {
 		return err
 	}
 
 	err = client.resetDeclares(ch)
-
 	if err != nil {
 		return err
 	}
 
 	client.changeChannel(ch)
 	client.mapSubscriptions.Range(func(key any, value any) bool {
-		_subscription, ok := value.(*subscription)
+		subscription, ok := value.(*subscription)
 		if !ok {
 			return true
 		}
-		consume(ch, *_subscription)
+		consume(ch, subscription)
 		return true
 	})
-	client.isReady = true
-	logrus.Infof("[AMQP] Setup!")
+	client.isReady.Store(true)
 
 	return nil
 }
@@ -241,33 +197,32 @@ func (client *Client) init(conn *amqp091.Connection) error {
 // handleReconnect will wait for a channel error
 // and then continuously attempt to re-initialize both channels
 func (client *Client) handleReInit(conn *amqp091.Connection) bool {
-	logrus.Infof("handleReInit")
 	for {
-		client.isReady = false
+		client.isReady.Store(false)
 
 		err := client.init(conn)
 
 		if err != nil {
-			logrus.Infof("[AMQP] Failed to initialize channel. Retrying... err:", err)
+			logrus.Info("[AMQP] Failed to initialize channel. Retrying... err:", err)
 
 			select {
-			case <-client.doneCh:
+			case <-client.chDone:
 				return true
 			case <-time.After(reInitDelay):
 			}
 			continue
 		}
 
-		if client.readyCh != nil {
-			close(client.readyCh)
-			client.readyCh = nil
+		if client.chReady != nil {
+			close(client.chReady)
+			client.chReady = nil
 		}
 
 		select {
-		case <-client.doneCh:
+		case <-client.chDone:
 			return true
 		case err := <-client.notifyConnClose:
-			logrus.Infof("[AMQP] Connection closed with error: ", err.Error(), ". Reconnecting...")
+			logrus.WithError(err).Error("[AMQP] Connection closed. Reconnecting...")
 			return false
 		case <-client.notifyChanClose:
 			logrus.Infof("[AMQP] Channel closed. Re-running init...")
@@ -280,21 +235,22 @@ func (client *Client) handleReInit(conn *amqp091.Connection) bool {
 func (client *Client) handleReconnect() {
 	logrus.Infof("handleReconnect")
 	for {
-		client.isReady = false
+		client.isReady.Store(false)
+
 		logrus.Infof("[AMQP] handleReconnect Attempting to connect")
 
 		conn, err := client.connect()
 		if err != nil {
 			logrus.Infof("[AMQP] Failed to connect. Retrying...")
 			select {
-			case <-client.doneCh:
+			case <-client.chDone:
 				return
 			case <-time.After(reconnectDelay):
 			}
 			continue
 		}
 
-		if doneCh := client.handleReInit(conn); doneCh {
+		if chDone := client.handleReInit(conn); chDone {
 			break
 		}
 	}
@@ -302,83 +258,95 @@ func (client *Client) handleReconnect() {
 
 // Public
 
-func (client *Client) declareExchange(declare *ExchangeDeclare) error {
-	if client._channel == nil {
-		return nil
+func (client *Client) declareExchange(declare ExchangeDeclare) (bool, error) {
+
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
+	if client.channel == nil {
+		return false, nil
 	}
-	passive := declare.exist
+
+	passive := declare.Passive
+	modify := false
 	if !passive {
-		err := client._channel.ExchangeDeclare(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
-		if err != nil {
-			declare.exist = true
+		err := client.channel.ExchangeDeclare(declare.Name, declare.Kind, declare.Durable, declare.AutoDelete, declare.Internal, false, declare.Arguments)
+		if err != nil { // 改使用passive
 			passive = true
 		}
+		modify = true
 	}
 	if passive {
-		err := client._channel.ExchangeDeclarePassive(declare.Name, declare.Kind, false, declare.AutoDelete, false, false, nil)
-		if err != nil {
-			return err
-		}
+		err := client.channel.ExchangeDeclarePassive(declare.Name, declare.Kind, declare.Durable, declare.AutoDelete, declare.Internal, false, declare.Arguments)
+		return modify, err
 	}
-	return nil
+	return modify, nil
 }
 
-func (client *Client) declareQueue(declare *QueueDeclare) error {
-	if client._channel == nil {
-		return nil
+func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
+
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
+	if client.channel == nil {
+		return false, nil
 	}
-	passive := declare.exist
-	// log.Infof("[AMQP] passive:[%v]", passive)
+
+	passive := declare.Passive
+	modify := false
 	if !passive {
-		// log.Infof("[AMQP] QueueDeclare name:[%v]", declare.Name)
-		_, err := client._channel.QueueDeclare(declare.Name, false, declare.AutoDelete, false, false, nil)
-		if err != nil {
-			declare.exist = true
+		_, err := client.channel.QueueDeclare(declare.Name, declare.Durable, declare.AutoDelete, declare.Exclusive, false, declare.Arguments)
+		if err != nil { // 改使用passive
 			passive = true
 		}
+		modify = true
 	}
 	if passive {
-		if _, err := client._channel.QueueDeclarePassive(declare.Name, false, declare.AutoDelete, false, false, nil); err != nil {
-			return err
-		}
+		_, err := client.channel.QueueDeclarePassive(declare.Name, declare.Durable, declare.AutoDelete, declare.Exclusive, false, declare.Arguments)
+		return modify, err
 	}
-	return nil
+	return modify, nil
 }
 
 func (client *Client) resetDeclares(channel *amqp091.Channel) error {
-	client._channel = channel
+	client.channel = channel
 	var err error
 	client.exchangeDeclares.Range(func(key any, value any) bool {
-		declare, ok := value.(*ExchangeDeclare)
+		declare, ok := value.(ExchangeDeclare)
 		if ok {
-			err = client.declareExchange(declare)
-			if err != nil {
-				return false
+			updatePassive, errDeclare := client.declareExchange(declare)
+			if errDeclare != nil {
+				err = errors.Join(err, errDeclare)
+				return true
+			}
+			if updatePassive {
+				declare.Passive = true
+				client.queueDeclares.Store(key, declare)
 			}
 		}
 		return true
 	})
-	if err != nil {
-		return err
-	}
 	client.queueDeclares.Range(func(key any, value any) bool {
-		declare, ok := value.(*QueueDeclare)
+		declare, ok := value.(QueueDeclare)
 		if ok {
-			err = client.declareQueue(declare)
-			if err != nil {
-				return false
+			updatePassive, errDeclare := client.declareQueue(declare)
+			if errDeclare != nil {
+				err = errors.Join(err, errDeclare)
+				return true
+			}
+			if updatePassive {
+				declare.Passive = true
+				client.queueDeclares.Store(key, declare)
 			}
 		}
 		return true
 	})
-	if err != nil {
-		return err
-	}
 	client.queueBindDeclares.Range(func(key any, value any) bool {
-		declare, ok := value.(*QueueBindDeclare)
+		declare, ok := value.(QueueBindDeclare)
 		if ok {
-			err = client._channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
+			err = client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
 			if err != nil {
+				logrus.WithError(err).Error("[AMQP]", "QueueBind error")
 				return false
 			}
 		}
@@ -387,82 +355,48 @@ func (client *Client) resetDeclares(channel *amqp091.Channel) error {
 	return err
 }
 
+// Public
+
 func (client *Client) ExchangeDeclare(declare ExchangeDeclare) error {
-	_declare := declare
-	client.exchangeDeclares.LoadOrStore(_declare.Name, &_declare)
-	return client.declareExchange(&_declare)
+	updatePassive, err := client.declareExchange(declare)
+	if err != nil {
+		return err
+	}
+	if updatePassive {
+		declare.Passive = true
+		client.queueDeclares.Store(declare.Name, declare)
+	}
+	return nil
 }
 
 func (client *Client) QueueDeclare(declare QueueDeclare) error {
-	_declare := declare
-	client.queueDeclares.LoadOrStore(_declare.Name, &_declare)
-	return client.declareQueue(&_declare)
-}
-
-func (client *Client) RemoveQueueDeclare(queue string) {
-	client.Unsubscribe(queue)
-	client.queueDeclares.Delete(queue)
-	if client._channel != nil {
-		client._channel.QueueDelete(queue, false, false, false)
+	updatePassive, err := client.declareQueue(declare)
+	if err != nil {
+		return err
 	}
-	time.Sleep(2 * time.Second)
-	client.doRemove = false
-}
-
-func (client *Client) RemoveAllQueueDeclare() {
-	// 使用 Range 方法遍历 sync.Map
-	keys := make([]interface{}, 0)
-	client.queueDeclares.Range(func(key, value interface{}) bool {
-		keys = append(keys, key)
-		return true // 返回 true 继续遍历，返回 false 中止遍历
-	})
-
-	for _, item := range keys {
-		logrus.Infof("RemoveAllQueueDeclare item:[%v]", item)
-		client.RemoveQueueDeclare(item.(string))
+	if updatePassive {
+		declare.Passive = true
+		client.queueDeclares.Store(declare.Name, declare)
 	}
+	return nil
 }
 
 func (client *Client) QueueBindDeclare(declare QueueBindDeclare) error {
-	_declare := declare
-	client.queueBindDeclares.LoadOrStore(_declare.Exchange+_declare.Queue, &_declare)
-	if client._channel == nil {
+	client.queueBindDeclares.LoadOrStore(declare.Exchange+declare.Queue, &declare)
+	if client.channel == nil {
 		return nil
 	}
-	return client._channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
-}
-
-func (client *Client) RemoveQueueBindDeclare(exchange, queue string) {
-	client.doRemove = true
-	value, loaded := client.queueBindDeclares.LoadAndDelete(exchange + queue)
-	if loaded && value != nil && client._channel != nil {
-		declare, ok := value.(*QueueBindDeclare)
-		if ok {
-			client._channel.QueueUnbind(declare.Queue, declare.RouteKey, declare.Exchange, declare.Headers)
-		}
-	}
-}
-
-func (client *Client) RemoveAllQueueBindDeclare(exchange string) {
-	// 使用 Range 方法遍历 sync.Map
-	keys := make([]interface{}, 0)
-	client.queueDeclares.Range(func(key, value interface{}) bool {
-		keys = append(keys, key.(string))
-		return true // 返回 true 继续遍历，返回 false 中止遍历
-	})
-
-	for _, item := range keys {
-		logrus.Infof("RemoveAllQueueBindDeclare item:[%v]", item)
-		client.RemoveQueueBindDeclare(exchange, item.(string))
-	}
+	return client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
 }
 
 func (client *Client) Connect() {
+
 	client.mu.Lock()
 	_needStart := false
 	if !client.shouldRun {
 		client.shouldRun = true
-		client.readyCh = make(chan bool)
+		client.chReady = make(chan bool)
+		client.chDone = make(chan bool)
 		_needStart = true
 	}
 	client.mu.Unlock()
@@ -470,42 +404,44 @@ func (client *Client) Connect() {
 	if _needStart {
 		go client.handleReconnect()
 	}
-	if client.readyCh != nil {
-		<-client.readyCh
+	if client.chReady != nil {
+		<-client.chReady
 	}
 }
 
 // Close will cleanly shutdown the channel and connection.
 func (client *Client) Close() error {
+
 	client.mu.Lock()
+	defer client.mu.Unlock()
+
 	_needClose := false
 	if client.shouldRun {
 		client.shouldRun = false
 		_needClose = true
 	}
-	client.mu.Unlock()
 	if _needClose {
-		client.setReady(false)
-		err := client._channel.Close()
-		if err != nil {
-			return err
+		client.isReady.Store(false)
+		if client.channel != nil {
+			err := client.channel.Close()
+			if err != nil {
+				return err
+			}
 		}
-		err = client._conn.Close()
-		if err != nil {
-			return err
+		if client.conn != nil {
+			err := client.conn.Close()
+			if err != nil {
+				return err
+			}
 		}
-		close(client.doneCh)
+		if client.chDone != nil {
+			close(client.chDone)
+			client.chDone = nil
+		}
 
 	}
 
 	return nil
-}
-
-func (client *Client) GetReady() bool {
-	client.mu.Lock()
-	isReady := client.isReady
-	client.mu.Unlock()
-	return isReady
 }
 
 // UnsafePush will push to the queue without checking for
@@ -513,14 +449,14 @@ func (client *Client) GetReady() bool {
 // No guarantees are provided for whether the server will
 // receive the message.
 func (client *Client) unsafePush(ctx context.Context, exchange, key string, msg *Publishing) error {
-	if !client.isReady {
+	if !client.isReady.Load() {
 		return errNotConnected
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	return client._channel.PublishWithContext(
+	return client.channel.PublishWithContext(
 		ctx,
 		exchange,
 		key,
@@ -533,7 +469,7 @@ func (client *Client) unsafePush(ctx context.Context, exchange, key string, msg 
 func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Publishing) error {
 
 	msg.Timestamp = time.Now()
-	if !client.isReady {
+	if !client.isReady.Load() {
 		return errors.New("[AMQP] failed to push: not connected, client is not ready")
 	}
 	for {
@@ -541,7 +477,7 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 		if err != nil {
 			logrus.Infof("[AMQP] Push failed. Retrying...")
 			select {
-			case <-client.doneCh:
+			case <-client.chDone:
 				return errShutdown
 			case <-time.After(resendDelay):
 			}
@@ -559,130 +495,9 @@ func (client *Client) Publish(ctx context.Context, exchange, key string, msg *Pu
 	}
 }
 
-func (client *Client) Publisher(exchange string) *Publisher {
-	return &Publisher{
-		exg:    exchange,
-		client: client,
-	}
-}
-
-func (client *Client) AmqpOpsSubscribe(ctx context.Context, exchange string, service string, platform string, autoAct bool, fn func(Delivery)) {
-
-	for {
-	redial:
-
-		if ctx.Err() != nil {
-			return
-		}
-
-		client.Connect()
-
-		closeChan := make(chan *amqp091.Error)
-		client._conn.NotifyClose(closeChan)
-
-		instanceId := uuid.NewString()
-		queue := fmt.Sprintf("%v:%v:provide:%v", service, platform, instanceId)
-		logrus.Infof("[AMQP] AmqpOpsSubscribe queue:[%v]", queue)
-
-		err := client.ExchangeDeclare(ExchangeDeclare{
-			Name:       exchange,
-			Kind:       ExchangeHeaders,
-			AutoDelete: false,
-		})
-		if err != nil {
-			logrus.Fatalf("[AMQP] AmqpOpsSubscribe failed ExchangeDeclare:[%v]", err)
-			continue
-		}
-
-		err = client.QueueDeclare(QueueDeclare{
-			Name:       queue,
-			AutoDelete: true,
-		})
-		if err != nil {
-			logrus.Fatalf("[AMQP] AmqpOpsSubscribe failed QueueDeclare:[%v]", err)
-			continue
-		}
-		err = client.QueueBindDeclare(QueueBindDeclare{
-			Exchange: exchange,
-			Queue:    queue,
-			Headers: amqp091.Table{
-				"x-match":    "all",
-				"notifyType": pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String(),
-				platform:     true,
-			},
-		})
-		if err != nil {
-			logrus.Fatalf("[AMQP] AmqpOpsSubscribe failed QueueBindDeclare:[%v]", err)
-			continue
-		}
-
-		client.mu.Lock()
-
-		subscription := &subscription{
-			queue:    queue,
-			handler:  fn,
-			consumer: queue,
-			autoAct:  false,
-		}
-		client.mapSubscriptions.Store(queue, subscription)
-		getChannel := client.GetChannel()
-		client.mu.Unlock()
-		logrus.Infof("[AMQP] Consume queue:[%v]", queue)
-		deliveries, err := getChannel.Consume(queue, "", false, false, false, false, nil)
-		if err != nil {
-			logrus.Fatalf("[AMQP] AmqpOpsSubscribe failed consume: %v", err)
-			continue
-		}
-
-		//proc loop
-		for {
-			select {
-			case <-ctx.Done():
-				client._conn.Close()
-				return //exit loop
-			case err = <-closeChan:
-				//do redial
-				goto redial
-			case delivery, ok := <-deliveries:
-				// logrus.Infof("[AMQP] call delivery func")
-				if !ok {
-					logrus.Infof("[AMQP] Consumer channel closed, attempting to reconnect...")
-					// 等待一段时间后重新连接
-					time.Sleep(1 * time.Second)
-					// 重新建立连接
-					_, err := client.connect()
-					if err != nil {
-						logrus.Errorf("[AMQP] Failed to reconnect to RabbitMQ:[%v]", err)
-						continue
-					}
-					deliveries, err = client._channel.Consume(queue, "", autoAct, false, false, false, nil)
-					if err != nil {
-						logrus.Errorf("[AMQP] Consume err:[%v]", err)
-						return
-					}
-
-					if err != nil {
-						logrus.Errorf("[AMQP] Failed to register a consumer:[%v]\n", err)
-						continue
-					}
-					// logrus.Infof("[AMQP] Reconnected to RabbitMQ successfully")
-					continue
-				}
-
-				fn(delivery)
-				err = delivery.Ack(false)
-				if err != nil {
-					logrus.Fatalf("[AMQP] failed ack:[%v]", err)
-				}
-			}
-		}
-	}
-}
-
 func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct bool, fn func(Delivery)) error {
 	// logrus.Infof("[AMQP] SubscribeQueue")
 
-	client.mu.Lock()
 	subscription := &subscription{
 		queue:    queue,
 		handler:  fn,
@@ -690,59 +505,49 @@ func (client *Client) SubscribeQueue(ctx context.Context, queue string, autoAct 
 		autoAct:  autoAct,
 	}
 	client.mapSubscriptions.Store(queue, subscription)
-	getChannel := client.GetChannel()
-	client.mu.Unlock()
 
-	if getChannel != nil {
-		// logrus.Infof("[AMQP] client channel not nil")
-		chDelivery, err := getChannel.Consume(queue, "", autoAct, false, false, false, nil)
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
+	if client.channel != nil {
+
+		err := consume(client.channel, subscription)
 		if err != nil {
-			logrus.Infof("[AMQP] Consume err:[%v]", err)
-			return err
+			logrus.WithError(err).Error("[AMQP]", "Consume err", err)
 		}
-
-		// 循环处理消息
-		// logrus.Infof("[AMQP] loop call fn delivery")
-		go func() {
-			for delivery := range chDelivery {
-				// logrus.Infof("[AMQP] call delivery func")
-				fn(delivery)
-				err = delivery.Ack(false)
-				if err != nil {
-					logrus.Fatalf("failed ack: %v", err)
-				}
-			}
-		}()
+		return err
 
 	} else {
-		logrus.Infof("[AMQP] client channel is nil")
+		logrus.Info(ctx, "[AMQP]", "client channel is nil", queue)
 	}
 
 	return nil
 }
 
 func (client *Client) Unsubscribe(queue string) {
-	_subscription, ok := client.mapSubscriptions.LoadAndDelete(queue)
-	if ok && client._channel != nil {
-		client._channel.Cancel(_subscription.(*subscription).consumer, false)
+	client.mu.Lock()
+	getOne, ok := client.mapSubscriptions.LoadAndDelete(queue)
+	if ok && client.channel != nil {
+		client.channel.Cancel(getOne.(*subscription).consumer, false)
 	}
+	client.mu.Unlock()
 }
 
 // New creates a new consumer state instance, and automatically
 // attempts to connect to the server.
 func NewClient(amqpUrl url.URL, config *Config) *Client {
 
-	_config := Config{}
+	cfg := Config{}
 	if config != nil {
-		_config = *config
+		cfg = *config
 	}
 
 	client := Client{
 		url:              amqpUrl,
-		config:           &_config,
-		doneCh:           make(chan bool),
+		config:           &cfg,
+		chDone:           make(chan bool, 1),
 		shouldRun:        false,
-		isReady:          false,
+		isReady:          atomic.Bool{},
 		mapSubscriptions: sync.Map{},
 	}
 	return &client
