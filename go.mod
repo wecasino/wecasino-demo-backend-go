@@ -20,6 +20,7 @@ require (
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
+	github.com/streadway/amqp v1.1.0
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
 	golang.org/x/net v0.20.0 // indirect
 	golang.org/x/sys v0.17.0 // indirect

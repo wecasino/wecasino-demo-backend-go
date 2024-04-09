@@ -81,58 +81,58 @@ func printJSON(ctx context.Context, object any) {
 }
 
 func HandleGameProvideStateChange(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleDealerLogin(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleDealerLogout(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleGameChangingShoe(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleShiftStart(ctx context.Context, shift *pbRecorder.ShiftRecord) {
-	// printJSON(ctx, shift)
+	printJSON(ctx, shift)
 }
 
 func HandleShiftEnd(ctx context.Context, shift *pbRecorder.ShiftRecord) {
-	// printJSON(ctx, shift)
+	printJSON(ctx, shift)
 }
 
 func HandleShoeStart(ctx context.Context, shoe *pbRecorder.ShoeRecord) {
-	// printJSON(ctx, shoe)
+	printJSON(ctx, shoe)
 }
 
 func HandleShoeEnd(ctx context.Context, shoe *pbRecorder.ShoeRecord) {
-	// printJSON(ctx, shoe)
+	printJSON(ctx, shoe)
 }
 
 func HandleRoundStart(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundStart")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 	countRoundStart++
 }
 
 func HandleRoundBet(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundBet")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 	countRoundBet++
 }
 
 func HandleRoundNoMoreBet(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundNoMoreBet")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 	countRoundNoMoreBet++
 }
 
 func HandleRoundStep(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundStep")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 }
 
 func HandleRoundFinish(ctx context.Context, round *pbRecorder.RoundRecord) {

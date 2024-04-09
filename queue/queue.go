@@ -218,7 +218,8 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 		log.Printf("receive StateChange headers: %v", delivery.Headers)
 
 		traceId := getTraceId(delivery.Headers["traceID"])
-		ctx, _ := s.tracer.Start(context.Background(), traceId)
+		// ctx, _ := s.tracer.Start(context.Background(), traceId)
+		s.tracer.Start(context.Background(), traceId)
 
 		if delivery.Type != pbRecorder.GameNotifyType_NOTIFY_GAME_PROVIDE_STATE_CHANGE.String() {
 			return
@@ -259,7 +260,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 					"gameCode":     gameCode,
 				},
 			})
-			s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
+			// s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
 		case pbRecorder.GameProvideState_GAME_PROVIDE_CLOSE, pbRecorder.GameProvideState_GAME_PROVIDE_IN_MAINTENANCE:
 			// logrus.Infof("remove Queue:[%v]", queue)
 			// s.amqp.RemoveQueueBindDeclare(s.exchange, queue)

@@ -670,10 +670,10 @@ func (client *Client) AmqpOpsSubscribe(ctx context.Context, exchange string, ser
 				}
 
 				fn(delivery)
-				err = delivery.Ack(false)
-				if err != nil {
-					logrus.Fatalf("[AMQP] failed ack:[%v]", err)
-				}
+				// err = delivery.Ack(false)
+				// if err != nil {
+				// 	logrus.Fatalf("[AMQP] failed ack:[%v]", err)
+				// }
 			}
 		}
 	}
