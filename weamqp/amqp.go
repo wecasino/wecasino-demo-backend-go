@@ -191,6 +191,7 @@ func (client *Client) init(conn *amqp091.Connection) error {
 		return true
 	})
 	client.isReady.Store(true)
+	logrus.Infof("[AMQP] init complete")
 
 	return nil
 }
@@ -304,7 +305,7 @@ func (client *Client) declareQueue(declare QueueDeclare) (bool, error) {
 		}
 		modify = true
 	}
-	logrus.Infof("declareQueue QueueDeclare check passive:[%v]", passive)
+	// logrus.Infof("declareQueue QueueDeclare check passive:[%v]", passive)
 	if passive {
 		_, err := client.channel.QueueDeclarePassive(declare.Name, declare.Durable, declare.AutoDelete, declare.Exclusive, false, declare.Arguments)
 		// logrus.Infof("[amqp] client.channel.QueueDeclarePassive err:[%v]", err)

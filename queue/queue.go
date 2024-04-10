@@ -352,3 +352,24 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 	return s
 }
+
+func ReceiveGameExchangeQueue(ctx context.Context, platformCode, exchange string, amqp *weamqp.Client, fn func(amqp091.Delivery)) {
+	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
+		Name: exchange,
+		Kind: weamqp.ExchangeHeaders,
+	})
+	amqp.QueueDeclare(weamqp.QueueDeclare{
+		Name:       platformCode,
+		AutoDelete: false,
+	})
+	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
+		Exchange: exchange,
+		Queue:    platformCode,
+		Headers: amqp091.Table{
+			"x-match":    "all",
+			platformCode: true,
+		},
+	})
+
+	amqp.SubscribeQueue(ctx, platformCode, false, fn)
+}

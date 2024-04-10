@@ -31,6 +31,7 @@ const PLATFORM_CODE = "PLATFORM_CODE"
 
 const AMQP_CONNECTION_STRING = "AMQP_CONNECTION_STRING"
 const AMQP_EXCHANGE = "AMQP_EXCHANGE"
+const AMQP_EXCHANGE_DURABLE = "AMQP_EXCHANGE_DURABLE"
 
 const NOTIFY_API_URL = "NOTIFY_API_URL"
 
@@ -174,10 +175,10 @@ func main() {
 	// self host queue
 	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
-	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
+	exchange_durable := readEnvMustNotEmpty(AMQP_EXCHANGE_DURABLE)
 	selfHostAmqp := loadAMQPClient(AMQP_CONNECTION_STRING)
 
-	wecasinoQueue := queue.NewCasinoQueue(ctx, service, platformCode, exchange, selfHostAmqp)
+	wecasinoQueue := queue.NewCasinoQueue(ctx, service, platformCode, exchange_durable, selfHostAmqp)
 
 	wecasinoQueue.HandleGameProvideStateChange(HandleGameProvideStateChange)
 	wecasinoQueue.HandleDealerLogin(HandleDealerLogin)
@@ -199,11 +200,26 @@ func main() {
 
 	// notify api
 	notifyApi := loadAMQPClient(NOTIFY_API_URL)
-	notifyApi.QueueDeclare(weamqp.QueueDeclare{
-		Name:       platformCode,
-		AutoDelete: false,
-	})
-	notifyApi.SubscribeQueue(ctx, platformCode, false, wecasinoQueue.GenInputFunc())
+	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
+	// notifyApi.ExchangeDeclare(weamqp.ExchangeDeclare{
+	// 	Name: exchange,
+	// 	Kind: weamqp.ExchangeHeaders,
+	// })
+	// notifyApi.QueueDeclare(weamqp.QueueDeclare{
+	// 	Name:       platformCode,
+	// 	AutoDelete: false,
+	// })
+	// notifyApi.QueueBindDeclare(weamqp.QueueBindDeclare{
+	// 	Exchange: exchange,
+	// 	Queue:    platformCode,
+	// 	Headers: amqp091.Table{
+	// 		"platform":   platformCode,
+	// 		"x-match":    "any",
+	// 		platformCode: true,
+	// 	},
+	// })
+	// notifyApi.SubscribeQueue(ctx, platformCode, false, wecasinoQueue.GenInputFunc())
+	queue.ReceiveGameExchangeQueue(ctx, platformCode, exchange, notifyApi, wecasinoQueue.GenInputFunc())
 
 	// start
 	wecasinoQueue.Start()

@@ -25,11 +25,12 @@ import (
 )
 
 const PLATFORM_CODE = "PLATFORM_CODE"
+const SERVICE = "SERVICE"
 const NOTIFY_API_URL = "NOTIFY_API_URL"
 const PROVIDER_API_URL = "PROVIDER_API_URL"
 const GAME_CODE = "GAME_CODE"
 
-var testGame = ""
+var receiveQueue = ""
 
 func initTracer() func() {
 	exporter, err := stdout.New()
@@ -99,7 +100,7 @@ func handleMessage(msg amqp091.Delivery) {
 	gameCode := fmt.Sprintf("%v", msg.Headers["gameCode"])
 	// log.Printf("[AMQPCallBack] gameCode:[%v]", gameCode)
 	// log.Printf("[AMQPCallBack] testGame:[%v]", testGame)
-	if strings.Contains(testGame, gameCode) {
+	if strings.Contains(receiveQueue, gameCode) {
 
 		log.WithContext(traceCtx).Infof("[AMQPCallBack] receive gameCode:[%v]", gameCode)
 
@@ -247,6 +248,7 @@ func main() {
 
 	defer initTracer()()
 
+	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
 
 	amqpUrl, err := url.Parse(readEnvMustNotEmpty(NOTIFY_API_URL))
@@ -259,7 +261,8 @@ func main() {
 	})
 	notifyApi.SubscribeQueue(context.Background(), platformCode, true, handleMessage)
 
-	testGame = readEnvMustNotEmpty(GAME_CODE)
+	gameCode := readEnvMustNotEmpty(GAME_CODE)
+	receiveQueue = fmt.Sprintf("%v:%v:game:%v", service, platformCode, gameCode)
 
 	notifyApi.Connect()
 
