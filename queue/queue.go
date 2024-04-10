@@ -249,6 +249,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			s.amqp.QueueDeclare(weamqp.QueueDeclare{
 				Name:       queue,
 				AutoDelete: false, // 手動檢查刪除
+				Durable:    true,
 			})
 			s.amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 				Exchange: s.exchange,

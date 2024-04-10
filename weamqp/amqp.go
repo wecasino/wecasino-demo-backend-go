@@ -257,8 +257,6 @@ func (client *Client) handleReconnect() {
 	}
 }
 
-// Public
-
 func (client *Client) declareExchange(declare ExchangeDeclare) (bool, error) {
 
 	client.mu.Lock()
@@ -352,7 +350,7 @@ func (client *Client) resetDeclares(channel *amqp091.Channel) error {
 		if ok {
 			err = client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
 			if err != nil {
-				logrus.WithError(err).Error("[AMQP]", "QueueBind error")
+				logrus.WithError(err).Error("[AMQP]", "QueueBind error:[%v]", err)
 				return false
 			}
 		}
@@ -360,54 +358,6 @@ func (client *Client) resetDeclares(channel *amqp091.Channel) error {
 	})
 	return err
 }
-
-// func (client *Client) resetDeclares(channel *amqp091.Channel) error {
-// 	logrus.Infof("resetDeclares")
-// 	client.channel = channel
-// 	var err error
-// 	logrus.Infof("resetDeclares range declareExchange")
-// 	client.exchangeDeclares.Range(func(key any, value any) bool {
-// 		declare, ok := value.(*ExchangeDeclare)
-// 		if ok {
-// 			_, err = client.declareExchange(*declare)
-// 			if err != nil {
-// 				return false
-// 			}
-// 		}
-// 		return true
-// 	})
-// 	if err != nil {
-// 		return err
-// 	}
-// 	logrus.Infof("resetDeclares range queueDeclares")
-// 	client.queueDeclares.Range(func(key any, value any) bool {
-// 		declare, ok := value.(*QueueDeclare)
-// 		if ok {
-// 			logrus.Infof("range get ok")
-// 			_, err = client.declareQueue(*declare)
-// 			if err != nil {
-// 				return false
-// 			}
-// 		}
-// 		return true
-// 	})
-// 	if err != nil {
-// 		return err
-// 	}
-// 	client.queueBindDeclares.Range(func(key any, value any) bool {
-// 		declare, ok := value.(*QueueBindDeclare)
-// 		if ok {
-// 			err = client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
-// 			if err != nil {
-// 				return false
-// 			}
-// 		}
-// 		return true
-// 	})
-// 	return err
-// }
-
-// Public
 
 func (client *Client) ExchangeDeclare(declare ExchangeDeclare) error {
 	client.exchangeDeclares.Store(declare.Name, declare)
@@ -434,13 +384,6 @@ func (client *Client) QueueDeclare(declare QueueDeclare) error {
 		client.queueDeclares.Store(declare.Name, declare)
 	}
 	return nil
-	// _declare := declare
-	// client.queueDeclares.LoadOrStore(_declare.Name, &_declare)
-	// _, err := client.declareQueue(_declare)
-	// if err != nil {
-	// 	return err
-	// }
-	// return nil
 }
 
 func (client *Client) QueueBindDeclare(declare QueueBindDeclare) error {
