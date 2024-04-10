@@ -235,7 +235,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			log.Print("gameCode empty")
 			return
 		}
-		log.Printf("receive StateChange gameProvide.State:[%v]", gameProvide.State)
+		logrus.WithContext(ctx).Printf("receive StateChange gameProvide.State:[%v]", gameProvide.State)
 
 		queue := fmt.Sprintf("%v:%v:game:%v", s.service, s.platformCode, gameProvide.GameCode)
 
@@ -249,6 +249,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			s.amqp.QueueDeclare(weamqp.QueueDeclare{
 				Name:       queue,
 				AutoDelete: false, // 手動檢查刪除
+				Durable:    true,
 			})
 			s.amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 				Exchange: s.exchange,
@@ -259,11 +260,7 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 					"gameCode":     gameCode,
 				},
 			})
-			s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
-		case pbRecorder.GameProvideState_GAME_PROVIDE_CLOSE, pbRecorder.GameProvideState_GAME_PROVIDE_IN_MAINTENANCE:
-			// logrus.Infof("remove Queue:[%v]", queue)
-			// s.amqp.RemoveQueueBindDeclare(s.exchange, queue)
-			// s.amqp.RemoveQueueDeclare(queue)
+			// s.amqp.SubscribeQueue(ctx, queue, false, s.genGameHandler(gameCode))
 		default:
 			logrus.Infof("enter default gameProvide.State:[%v]", gameProvide.State)
 		}
@@ -275,6 +272,8 @@ func (s *WECasinoQueue) GenInputFunc() func(amqp091.Delivery) {
 		if s.amqp == nil {
 			return
 		}
+		// logrus.Infof("GenInputFunc exchange:[%v]", s.exchange)
+		// logrus.Infof("GenInputFunc headers:[%v]", d.Headers)
 		s.amqp.Publish(context.Background(), s.exchange, d.RoutingKey, &amqp091.Publishing{
 			Headers:         d.Headers,
 			ContentType:     d.ContentType,
@@ -295,8 +294,8 @@ func (s *WECasinoQueue) GenInputFunc() func(amqp091.Delivery) {
 }
 
 func (s *WECasinoQueue) Start() {
-
 	if s.amqp == nil {
+		logrus.Infof("[AMQP] Start amqp is nil")
 		return
 	}
 	logrus.Infof("[AMQP] Start then Connect")
@@ -308,9 +307,7 @@ func (s *WECasinoQueue) End() {
 	if s.amqp == nil {
 		return
 	}
-	// logrus.Info("run remove queue")
-	// s.amqp.RemoveAllQueueBindDeclare(s.exchange)
-	// s.amqp.RemoveAllQueueDeclare()
+
 	s.amqp.Close()
 }
 
@@ -318,17 +315,20 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 	instanceId := uuid.NewString()
 	queue := fmt.Sprintf("%v:%v:provide:%v", service, platformCode, instanceId)
+	logrus.Infof("NewCasinoQueue queue:[%v]", queue)
 
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
-		Name:       exchange,
-		Kind:       weamqp.ExchangeHeaders,
-		AutoDelete: false,
+		Name:    exchange,
+		Kind:    weamqp.ExchangeHeaders,
+		Durable: true,
 	})
 
 	amqp.QueueDeclare(weamqp.QueueDeclare{
-		Name:       queue,
-		AutoDelete: true,
+		Name:      queue,
+		Durable:   true,
+		Exclusive: true,
 	})
+
 	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 		Exchange: exchange,
 		Queue:    queue,
@@ -340,7 +340,7 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 	})
 
 	s := &WECasinoQueue{
-		// instanceId:   instanceId,
+		instanceId:   instanceId,
 		service:      service,
 		platformCode: platformCode,
 		exchange:     exchange,
@@ -348,8 +348,7 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 		amqp:         amqp,
 		handlers:     sync.Map{},
 	}
-	// amqp.AmqpOpsSubscribe(ctx, exchange, service, platformCode, false, s.genProvideStateChangeHandler())
-	amqp.SubscribeQueue(ctx, queue, false, s.genProvideStateChangeHandler())
+	amqp.SubscribeQueue(ctx, queue, true, s.genProvideStateChangeHandler())
 
 	return s
 }

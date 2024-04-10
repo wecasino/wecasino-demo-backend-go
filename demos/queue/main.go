@@ -25,14 +25,14 @@ import (
 	pbRecorder "github.com/wecasino/wecasino-proto/pbgo/recorder"
 )
 
+const SERVICE = "SERVICE"
+
 const PLATFORM_CODE = "PLATFORM_CODE"
-const NOTIFY_API_URL = "NOTIFY_API_URL"
-const PROVIDER_API_URL = "PROVIDER_API_URL"
 
 const AMQP_CONNECTION_STRING = "AMQP_CONNECTION_STRING"
 const AMQP_EXCHANGE = "AMQP_EXCHANGE"
 
-const SERVICE = "SERVICE"
+const NOTIFY_API_URL = "NOTIFY_API_URL"
 
 var countRound = 0
 var countRoundStart = 0
@@ -56,11 +56,8 @@ func readEnvMustNotEmpty(name string) string {
 
 func loadAMQPClient(env string) *weamqp.Client {
 
-	_url := readEnv(env)
-	if _url == "" {
-		return nil
-	}
-	amqpUrl, err := url.Parse(_url)
+	connectString := readEnvMustNotEmpty(env)
+	amqpUrl, err := url.Parse(connectString)
 	if err != nil {
 		log.Fatalf("amqp url: %v parse failed with error: %v", amqpUrl, err)
 	}
@@ -77,62 +74,62 @@ func printJSON(ctx context.Context, object any) {
 	} else if len(data) > 0 {
 		span.SetAttributes(attribute.String("json", string(data)))
 	}
-	defer span.End()
+	// defer span.End()
 }
 
 func HandleGameProvideStateChange(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleDealerLogin(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleDealerLogout(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleGameChangingShoe(ctx context.Context, gameProvide *pbRecorder.GameProvide) {
-	// printJSON(ctx, gameProvide)
+	printJSON(ctx, gameProvide)
 }
 
 func HandleShiftStart(ctx context.Context, shift *pbRecorder.ShiftRecord) {
-	// printJSON(ctx, shift)
+	printJSON(ctx, shift)
 }
 
 func HandleShiftEnd(ctx context.Context, shift *pbRecorder.ShiftRecord) {
-	// printJSON(ctx, shift)
+	printJSON(ctx, shift)
 }
 
 func HandleShoeStart(ctx context.Context, shoe *pbRecorder.ShoeRecord) {
-	// printJSON(ctx, shoe)
+	printJSON(ctx, shoe)
 }
 
 func HandleShoeEnd(ctx context.Context, shoe *pbRecorder.ShoeRecord) {
-	// printJSON(ctx, shoe)
+	printJSON(ctx, shoe)
 }
 
 func HandleRoundStart(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundStart")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 	countRoundStart++
 }
 
 func HandleRoundBet(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundBet")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 	countRoundBet++
 }
 
 func HandleRoundNoMoreBet(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundNoMoreBet")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 	countRoundNoMoreBet++
 }
 
 func HandleRoundStep(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("HandleRoundStep")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 }
 
 func HandleRoundFinish(ctx context.Context, round *pbRecorder.RoundRecord) {
@@ -143,12 +140,12 @@ func HandleRoundFinish(ctx context.Context, round *pbRecorder.RoundRecord) {
 	logrus.Infof("RoundStart:[%v], RoundBet:[%v], RoundNoMoreBet:[%v], RoundFinish:[%v]",
 		countRoundStart, countRoundBet, countRoundNoMoreBet, countRoundFinish)
 	logrus.Infof("=======================")
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 
 }
 
 func HandleRoundCancel(ctx context.Context, round *pbRecorder.RoundRecord) {
-	// printJSON(ctx, round)
+	printJSON(ctx, round)
 }
 
 func init() {
@@ -174,30 +171,11 @@ func main() {
 	)
 	otel.SetTracerProvider(tp)
 
-	defer func() {
-		if err := tp.Shutdown(ctx); err != nil {
-			logrus.Error("Error shutting down tracer provider: %v", err)
-		}
-	}()
-
-	// provider api 服務
-	// conn, err := grpc.Dial(readEnvMustNotEmpty(PROVIDER_API_URL))
-	// if err != nil {
-	// 	log.Panic(err)
-	// }
-	// record := pbRecorder.NewRecorderReadServiceClient(conn)
-	// provider := pbRecorder.NewProviderServiceClient(conn)
-
 	// self host queue
 	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
 	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
-	amqpDsn := readEnvMustNotEmpty(AMQP_CONNECTION_STRING)
-	selfHostAmqp, err := weamqp.LoadAMQPClient(amqpDsn)
-	if err != nil {
-		// logrus.ErrorCtx(ctx, "[startup]", "weamqp.LoadAMQPClient err", err)
-		logrus.Error("LoadAMQPClient err:[%v]", err)
-	}
+	selfHostAmqp := loadAMQPClient(AMQP_CONNECTION_STRING)
 
 	wecasinoQueue := queue.NewCasinoQueue(ctx, service, platformCode, exchange, selfHostAmqp)
 
@@ -220,16 +198,16 @@ func main() {
 	wecasinoQueue.HandleRoundCancel(HandleRoundCancel)
 
 	// notify api
-	// notifyApi := loadAMQPClient(NOTIFY_API_URL)
-	// notifyApi.QueueDeclare(weamqp.QueueDeclare{
-	// 	Name:       platformCode,
-	// 	AutoDelete: false,
-	// })
-	// notifyApi.SubscribeQueue(platformCode, false, wecasinoQueue.GenInputFunc())
+	notifyApi := loadAMQPClient(NOTIFY_API_URL)
+	notifyApi.QueueDeclare(weamqp.QueueDeclare{
+		Name:       platformCode,
+		AutoDelete: false,
+	})
+	notifyApi.SubscribeQueue(ctx, platformCode, false, wecasinoQueue.GenInputFunc())
 
 	// start
 	wecasinoQueue.Start()
-	// notifyApi.Connect()
+	notifyApi.Connect()
 
 	// 監聽關機訊號
 	quit := make(chan os.Signal, 1)
@@ -237,7 +215,7 @@ func main() {
 	<-quit
 	log.Println("shut down start")
 
-	// notifyApi.Close()
+	notifyApi.Close()
 	wecasinoQueue.End()
 	if err := tp.Shutdown(ctx); err != nil {
 		log.Fatalf("Error shutting down tracer provide: %v", err)
