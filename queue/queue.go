@@ -247,9 +247,9 @@ func (s *WECasinoQueue) genProvideStateChangeHandler() func(amqp091.Delivery) {
 			}
 
 			s.amqp.QueueDeclare(weamqp.QueueDeclare{
-				Name:       queue,
-				AutoDelete: false, // 手動檢查刪除
-				Durable:    true,
+				Name: queue,
+				// AutoDelete: false, // 手動檢查刪除
+				// Durable:    true,
 			})
 			s.amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
 				Exchange: s.exchange,
@@ -324,9 +324,7 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 	})
 
 	amqp.QueueDeclare(weamqp.QueueDeclare{
-		Name:      queue,
-		Durable:   true,
-		Exclusive: true,
+		Name: queue,
 	})
 
 	amqp.QueueBindDeclare(weamqp.QueueBindDeclare{
@@ -357,6 +355,7 @@ func ReceiveGameExchangeQueue(ctx context.Context, platformCode, exchange string
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
 		Name: exchange,
 		Kind: weamqp.ExchangeHeaders,
+		Durable: true,
 	})
 	amqp.QueueDeclare(weamqp.QueueDeclare{
 		Name:       platformCode,

@@ -38,6 +38,7 @@ const SERVICE = "SERVICE"
 const NOTIFY_API_URL = "NOTIFY_API_URL"
 const PROVIDER_API_URL = "PROVIDER_API_URL"
 const GAME_CODE = "GAME_CODE"
+const AMQP_EXCHANGE = "AMQP_EXCHANGE"
 
 var receiveQueue = ""
 
@@ -281,14 +282,28 @@ func main() {
 
 	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
+	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
 
 	amqpUrl, err := url.Parse(readEnvMustNotEmpty(NOTIFY_API_URL))
 	if err != nil {
 		log.Fatalf("amqp url: %v parse failed with error: %v", amqpUrl, err)
 	}
 	notifyApi := weamqp.NewClient(*amqpUrl, nil)
+	notifyApi.ExchangeDeclare(weamqp.ExchangeDeclare{
+		Name:    exchange,
+		Kind:    weamqp.ExchangeHeaders,
+		Durable: true,
+	})
 	notifyApi.QueueDeclare(weamqp.QueueDeclare{
 		Name: platformCode,
+	})
+	notifyApi.QueueBindDeclare(weamqp.QueueBindDeclare{
+		Exchange: exchange,
+		Queue:    platformCode,
+		Headers: amqp091.Table{
+			"x-match":    "all",
+			platformCode: true,
+		},
 	})
 	notifyApi.SubscribeQueue(context.Background(), platformCode, true, handleMessage)
 
