@@ -22,6 +22,15 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/wecasino/wecasino-example-backend-go/demos/onegame/hook"
+	pbGames "github.com/wecasino/wecasino-proto/pbgo/games"
+	pbBaccarat "github.com/wecasino/wecasino-proto/pbgo/games/baccarat"
+	pbBullFights "github.com/wecasino/wecasino-proto/pbgo/games/bullfight"
+	pbFantan "github.com/wecasino/wecasino-proto/pbgo/games/fantan"
+	pbLuckyWheel "github.com/wecasino/wecasino-proto/pbgo/games/luckywheel"
+	pbRoulette "github.com/wecasino/wecasino-proto/pbgo/games/roulette"
+	pbSicbo "github.com/wecasino/wecasino-proto/pbgo/games/sicbo"
+	pbTheBigBattle "github.com/wecasino/wecasino-proto/pbgo/games/thebigbattle"
+	pbThreeCards "github.com/wecasino/wecasino-proto/pbgo/games/threecards"
 )
 
 const PLATFORM_CODE = "PLATFORM_CODE"
@@ -29,6 +38,7 @@ const SERVICE = "SERVICE"
 const NOTIFY_API_URL = "NOTIFY_API_URL"
 const PROVIDER_API_URL = "PROVIDER_API_URL"
 const GAME_CODE = "GAME_CODE"
+const AMQP_EXCHANGE = "AMQP_EXCHANGE"
 
 var receiveQueue = ""
 
@@ -209,6 +219,28 @@ func handleMessage(msg amqp091.Delivery) {
 				log.Errorf("[AMQPCallBack] proto unmarshal error:[%v]", err)
 			}
 			// log.Infof("[AMQPCallBack] GameNotifyType_NOTIFY_ROUND_STEP RoundRecord:[%#v]", record)
+			// log.Infof("[AMQPCallBack] GameNotifyType_NOTIFY_ROUND_STEP RoundRecord process:[%#v]", record.Process)
+			for _, item := range record.Process {
+				log.Infof("[AMQPCallBack] GameNotifyType_NOTIFY_ROUND_STEP RoundRecord process code:[%#v]", item.Code)
+				switch record.GameType {
+				case pbGames.GameType_BACCARAT.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbBaccarat.Step_name[item.Code])
+				case pbGames.GameType_THEBIGBATTLE.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbTheBigBattle.Step_name[item.Code])
+				case pbGames.GameType_THREECARDS.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbThreeCards.Step_name[item.Code])
+				case pbGames.GameType_BULLFIGHT.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbBullFights.Step_name[item.Code])
+				case pbGames.GameType_FANTAN.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbFantan.Step_name[item.Code])
+				case pbGames.GameType_SICBO.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbSicbo.Step_name[item.Code])
+				case pbGames.GameType_ROULETTE.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbRoulette.Step_name[item.Code])
+				case pbGames.GameType_LUCKYWHEEL.String():
+					log.Infof("[AMQPCallBack] Step:[%v]", pbLuckyWheel.Step_name[item.Code])
+				}
+			}
 
 		case pbRecorder.GameNotifyType_NOTIFY_ROUND_FINISH.String():
 			record := &pbRecorder.RoundRecord{}
@@ -250,14 +282,28 @@ func main() {
 
 	service := readEnvMustNotEmpty(SERVICE)
 	platformCode := readEnvMustNotEmpty(PLATFORM_CODE)
+	exchange := readEnvMustNotEmpty(AMQP_EXCHANGE)
 
 	amqpUrl, err := url.Parse(readEnvMustNotEmpty(NOTIFY_API_URL))
 	if err != nil {
 		log.Fatalf("amqp url: %v parse failed with error: %v", amqpUrl, err)
 	}
 	notifyApi := weamqp.NewClient(*amqpUrl, nil)
+	notifyApi.ExchangeDeclare(weamqp.ExchangeDeclare{
+		Name:    exchange,
+		Kind:    weamqp.ExchangeHeaders,
+		Durable: true,
+	})
 	notifyApi.QueueDeclare(weamqp.QueueDeclare{
 		Name: platformCode,
+	})
+	notifyApi.QueueBindDeclare(weamqp.QueueBindDeclare{
+		Exchange: exchange,
+		Queue:    platformCode,
+		Headers: amqp091.Table{
+			"x-match":    "all",
+			platformCode: true,
+		},
 	})
 	notifyApi.SubscribeQueue(context.Background(), platformCode, true, handleMessage)
 

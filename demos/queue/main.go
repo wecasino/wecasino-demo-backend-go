@@ -204,6 +204,7 @@ func main() {
 	// notifyApi.ExchangeDeclare(weamqp.ExchangeDeclare{
 	// 	Name: exchange,
 	// 	Kind: weamqp.ExchangeHeaders,
+	// 	Durable: true,
 	// })
 	// notifyApi.QueueDeclare(weamqp.QueueDeclare{
 	// 	Name:       platformCode,

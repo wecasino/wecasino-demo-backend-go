@@ -352,7 +352,7 @@ func (client *Client) resetDeclares(channel *amqp091.Channel) error {
 		if ok {
 			err = client.channel.QueueBind(declare.Queue, declare.RouteKey, declare.Exchange, false, declare.Headers)
 			if err != nil {
-				logrus.WithError(err).Error("[AMQP]", "QueueBind error:[%v]", err)
+				logrus.WithError(err).Errorf("[AMQP] QueueBind error:[%v]", err)
 				return false
 			}
 		}

@@ -324,7 +324,7 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 	})
 
 	amqp.QueueDeclare(weamqp.QueueDeclare{
-		Name:      queue,
+		Name: queue,
 		Durable:   true,
 		Exclusive: true,
 	})
@@ -355,8 +355,9 @@ func NewCasinoQueue(ctx context.Context, service, platformCode, exchange string,
 
 func ReceiveGameExchangeQueue(ctx context.Context, platformCode, exchange string, amqp *weamqp.Client, fn func(amqp091.Delivery)) {
 	amqp.ExchangeDeclare(weamqp.ExchangeDeclare{
-		Name: exchange,
-		Kind: weamqp.ExchangeHeaders,
+		Name:    exchange,
+		Kind:    weamqp.ExchangeHeaders,
+		Durable: true,
 	})
 	amqp.QueueDeclare(weamqp.QueueDeclare{
 		Name:       platformCode,
